@@ -1,10 +1,18 @@
 # PuppyFTP
 
-Opensource, free FTP/SFTP + SSH + RDP desktop client for Windows with optional AI enhancements.
+Opensource, free server management desktop client for Windows with optional AI enhancements.
+
+### Supported Protocols
+
+- SSH
+- Telnet
+- RDP
+- Serial
+- FTP, including SFTP and FTPS
 
 ## Why PuppyFTP
 
-- Easily manage multiple SSH, FTP, SFTP, and RDP servers in one modern interface.
+- Easily manage multiple systems in one modern interface.
 - Portable JSON configuration for easy backup and sync across multiple PCs.
 - AI assistance that works with local, self-hosted, and API providers that can help you manage your servers and find files.
 - Prebuilt Windows setup and portable images.
