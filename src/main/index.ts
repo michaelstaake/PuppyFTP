@@ -23,6 +23,12 @@ declare const __BUILD_DATE__: string
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged
 
+// Only one PuppyFTP process per machine — a second launch focuses the existing window.
+const gotTheLock = app.requestSingleInstanceLock()
+if (!gotTheLock) {
+  app.quit()
+}
+
 const userDataPath = app.getPath('userData')
 const SERVERS_PATH = join(userDataPath, 'servers.json')
 const CATEGORIES_PATH = join(userDataPath, 'categories.json')
@@ -151,6 +157,23 @@ function writeTransferHistory(store: TransferHistoryStore): void {
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
+
+function focusMainWindow(): void {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    if (app.isReady()) createWindow()
+    return
+  }
+  if (mainWindow.isMinimized()) mainWindow.restore()
+  if (!mainWindow.isVisible()) mainWindow.show()
+  mainWindow.focus()
+  mainWindow.moveTop()
+}
+
+if (gotTheLock) {
+  app.on('second-instance', () => {
+    focusMainWindow()
+  })
+}
 
 function applyWindowChrome(preference: ThemePreference, resolved?: ResolvedTheme): void {
   // Sync themeSource first so shouldUseDarkColors reflects the real OS preference
@@ -805,68 +828,72 @@ ipcMain.handle(
   }
 )
 
-app.whenReady().then(() => {
-  app.on('browser-window-created', () => {})
-  // Crash recovery: leftover "active" chats become read-only history
-  endAllActiveAISessions()
-  syncNativeThemeSource(normalizeTheme(readJsonSync(SETTINGS_PATH, DEFAULT_SETTINGS).theme))
-  createWindow()
+if (gotTheLock) {
+  app.whenReady().then(() => {
+    app.on('browser-window-created', () => {})
+    // Crash recovery: leftover "active" chats become read-only history
+    endAllActiveAISessions()
+    syncNativeThemeSource(normalizeTheme(readJsonSync(SETTINGS_PATH, DEFAULT_SETTINGS).theme))
+    createWindow()
 
-  // --- Phase 6: System Tray + Global Hotkey (packaged only — avoids "vanished" window in dev) ---
-  const createTray = () => {
-    if (tray || isDev) return
+    // --- Phase 6: System Tray + Global Hotkey (packaged only — avoids "vanished" window in dev) ---
+    const createTray = () => {
+      if (tray || isDev) return
+      try {
+        const iconPath = resolveAppIcon()
+        tray = new Tray(iconPath)
+        const contextMenu = Menu.buildFromTemplate([
+          { label: "Show PuppyFTP", click: () => { focusMainWindow() } },
+          { label: "Hide", click: () => mainWindow?.hide() },
+          { type: "separator" },
+          { label: "Quit", click: () => { tray?.destroy(); app.quit() } }
+        ])
+        tray.setToolTip("PuppyFTP")
+        tray.setContextMenu(contextMenu)
+        tray.on("click", () => {
+          if (mainWindow) {
+            if (mainWindow.isVisible()) mainWindow.hide()
+            else focusMainWindow()
+          }
+        })
+      } catch (e) { console.error("Tray failed", e) }
+    }
+
+    createTray()
+
     try {
-      const iconPath = resolveAppIcon()
-      tray = new Tray(iconPath)
-      const contextMenu = Menu.buildFromTemplate([
-        { label: "Show PuppyFTP", click: () => { if (mainWindow) { if (mainWindow.isMinimized()) mainWindow.restore(); mainWindow.show(); mainWindow.focus() } } },
-        { label: "Hide", click: () => mainWindow?.hide() },
-        { type: "separator" },
-        { label: "Quit", click: () => { tray?.destroy(); app.quit() } }
-      ])
-      tray.setToolTip("PuppyFTP")
-      tray.setContextMenu(contextMenu)
-      tray.on("click", () => {
-        if (mainWindow) {
-          if (mainWindow.isVisible()) mainWindow.hide()
-          else { mainWindow.show(); mainWindow.focus() }
-        }
+      globalShortcut.register("CommandOrControl+Shift+P", () => {
+        if (!mainWindow || mainWindow.isDestroyed()) { createWindow(); return }
+        if (mainWindow.isVisible()) mainWindow.hide()
+        else focusMainWindow()
       })
-    } catch (e) { console.error("Tray failed", e) }
-  }
+    } catch (e) { console.error("Hotkey failed", e) }
 
-  createTray()
+    // Register Phase 3 FS handlers (see threat-model comment in fs-handlers.ts).
+    const mainWindowRef = { current: mainWindow }
+    registerFsHandlers(userDataPath, mainWindowRef)
 
-  try {
-    globalShortcut.register("CommandOrControl+Shift+P", () => {
-      if (!mainWindow || mainWindow.isDestroyed()) { createWindow(); return }
-      if (mainWindow.isVisible()) mainWindow.hide()
-      else { mainWindow.show(); mainWindow.focus() }
+    nativeTheme.on('updated', () => {
+      const preference = normalizeTheme(readJsonSync(SETTINGS_PATH, DEFAULT_SETTINGS).theme)
+      if (!mainWindow || mainWindow.isDestroyed()) return
+      if (preference !== 'system') return
+      const resolved = resolveThemePreference('system')
+      applyWindowChrome(preference, resolved)
+      mainWindow.webContents.send('theme:system-changed', resolved)
     })
-  } catch (e) { console.error("Hotkey failed", e) }
-
-  // Register Phase 3 FS handlers (see threat-model comment in fs-handlers.ts).
-  const mainWindowRef = { current: mainWindow }
-  registerFsHandlers(userDataPath, mainWindowRef)
-
-  nativeTheme.on('updated', () => {
-    const preference = normalizeTheme(readJsonSync(SETTINGS_PATH, DEFAULT_SETTINGS).theme)
-    if (!mainWindow || mainWindow.isDestroyed()) return
-    if (preference !== 'system') return
-    const resolved = resolveThemePreference('system')
-    applyWindowChrome(preference, resolved)
-    mainWindow.webContents.send('theme:system-changed', resolved)
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    })
   })
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
-  })
-})
+}
 
 app.on('window-all-closed', () => {
+  if (!gotTheLock) return
   if (process.platform !== 'darwin') app.quit()
 })
 
 app.on('before-quit', () => {
+  if (!gotTheLock) return
   endAllActiveAISessions()
   try {
     closeAllRemoteClients()
