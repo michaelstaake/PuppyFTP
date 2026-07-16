@@ -48,7 +48,8 @@ const emptyForm = {
   name: '',
   protocol: 'sftp' as Protocol,
   host: '',
-  port: 22,
+  /** Empty string while the user is clearing/retyping; resolved on save. */
+  port: 22 as number | '',
   username: '',
   categoryId: UNCATEGORIZED_ID,
   authMethod: 'password' as AuthMethod,
@@ -56,6 +57,10 @@ const emptyForm = {
   keyId: '',
   lastKnownOs: '',
   allowInvalidCertificate: false,
+}
+
+function resolveFormPort(port: number | '', protocol: Protocol): number {
+  return typeof port === 'number' && port > 0 ? port : defaultPortForProtocol(protocol)
 }
 
 function formFromServer(server: Server) {
@@ -194,26 +199,34 @@ const ServerSidebar: React.FC<ServerSidebarProps> = ({
 
   const setConnectionType = (connectionType: ConnectionType) => {
     const protocol: Protocol = connectionType === 'terminal' ? 'ssh' : 'sftp'
-    setNewServer(s => ({
-      ...s,
-      connectionType,
-      protocol,
-      port: defaultPortForProtocol(protocol),
-      authMethod:
-        connectionType === 'terminal' || protocol === 'sftp' ? s.authMethod : 'password',
-      keyId: connectionType === 'file' && protocol !== 'sftp' ? '' : s.keyId,
-    }))
+    setNewServer(s => {
+      const prevDefault = defaultPortForProtocol(s.protocol)
+      const keepCustom = typeof s.port === 'number' && s.port > 0 && s.port !== prevDefault
+      return {
+        ...s,
+        connectionType,
+        protocol,
+        port: keepCustom ? s.port : defaultPortForProtocol(protocol),
+        authMethod:
+          connectionType === 'terminal' || protocol === 'sftp' ? s.authMethod : 'password',
+        keyId: connectionType === 'file' && protocol !== 'sftp' ? '' : s.keyId,
+      }
+    })
   }
 
   const setProtocol = (protocol: Protocol) => {
     const supportsKey = protocol === 'ssh' || protocol === 'sftp'
-    setNewServer(s => ({
-      ...s,
-      protocol,
-      port: defaultPortForProtocol(protocol),
-      authMethod: supportsKey ? s.authMethod : 'password',
-      keyId: supportsKey ? s.keyId : '',
-    }))
+    setNewServer(s => {
+      const prevDefault = defaultPortForProtocol(s.protocol)
+      const keepCustom = typeof s.port === 'number' && s.port > 0 && s.port !== prevDefault
+      return {
+        ...s,
+        protocol,
+        port: keepCustom ? s.port : defaultPortForProtocol(protocol),
+        authMethod: supportsKey ? s.authMethod : 'password',
+        keyId: supportsKey ? s.keyId : '',
+      }
+    })
   }
 
   const handleSaveServer = async (e: React.FormEvent) => {
@@ -235,7 +248,7 @@ const ServerSidebar: React.FC<ServerSidebarProps> = ({
                 name: newServer.name,
                 protocol: newServer.protocol,
                 host: newServer.host,
-                port: newServer.port || defaultPortForProtocol(newServer.protocol),
+                port: resolveFormPort(newServer.port, newServer.protocol),
                 username: newServer.username,
                 categoryId: hasCustomCategories ? newServer.categoryId : s.categoryId,
                 authMethod: newServer.authMethod,
@@ -259,7 +272,7 @@ const ServerSidebar: React.FC<ServerSidebarProps> = ({
         name: newServer.name,
         protocol: newServer.protocol,
         host: newServer.host,
-        port: newServer.port || defaultPortForProtocol(newServer.protocol),
+        port: resolveFormPort(newServer.port, newServer.protocol),
         username: newServer.username,
         categoryId: hasCustomCategories ? newServer.categoryId : UNCATEGORIZED_ID,
         authMethod: newServer.authMethod,
@@ -902,12 +915,18 @@ const ServerSidebar: React.FC<ServerSidebarProps> = ({
                       type="number"
                       className="bg-background border border-border rounded px-3 py-1.5 text-sm"
                       value={newServer.port}
-                      onChange={e =>
-                        setNewServer(s => ({
-                          ...s,
-                          port: parseInt(e.target.value) || defaultPortForProtocol(s.protocol),
-                        }))
-                      }
+                      placeholder={String(defaultPortForProtocol(newServer.protocol))}
+                      onChange={e => {
+                        const raw = e.target.value
+                        if (raw === '') {
+                          setNewServer(s => ({ ...s, port: '' }))
+                          return
+                        }
+                        const parsed = parseInt(raw, 10)
+                        if (Number.isFinite(parsed)) {
+                          setNewServer(s => ({ ...s, port: parsed }))
+                        }
+                      }}
                     />
                   </div>
                   <input
