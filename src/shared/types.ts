@@ -135,7 +135,17 @@ export interface Server {
   lastConnectedAt?: number
   /** Last local explorer folder used for this server (file-transfer sessions). */
   lastLocalPath?: string
+  /** Last local explorer list sort for this server (file-transfer sessions). */
+  lastLocalSort?: ExplorerSortPreference
   order: number
+}
+
+export type ExplorerSortColumn = 'name' | 'size' | 'type'
+export type ExplorerSortDirection = 'asc' | 'desc'
+
+export interface ExplorerSortPreference {
+  column: ExplorerSortColumn
+  direction: ExplorerSortDirection
 }
 
 export interface Category {

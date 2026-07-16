@@ -1,5 +1,5 @@
 import React from 'react'
-import { Server, isSerialConnection, isTerminalProtocol, protocolLabel } from '@shared/types'
+import { Server, isSerialConnection, isTerminalProtocol, protocolLabel, type ExplorerSortPreference } from '@shared/types'
 import {
   MessageCircle,
   RefreshCw,
@@ -43,6 +43,8 @@ interface MainAreaProps {
   onSessionEnded: (serverId: string) => void
   /** Persist last local explorer folder per server. */
   onLocalPathChange?: (serverId: string, path: string) => void
+  /** Persist last local explorer sort per server. */
+  onLocalSortChange?: (serverId: string, sort: ExplorerSortPreference) => void
 }
 
 const MainArea: React.FC<MainAreaProps> = ({
@@ -68,6 +70,7 @@ const MainArea: React.FC<MainAreaProps> = ({
   onSessionClosed,
   onSessionEnded,
   onLocalPathChange,
+  onLocalSortChange,
 }) => {
   const explorerRef = React.useRef<DualPaneExplorerHandle>(null)
   const xtermRefs = React.useRef<Record<string, XTermHandle | null>>({})
@@ -416,6 +419,7 @@ const MainArea: React.FC<MainAreaProps> = ({
                   onConnected={() => onSessionConnected(s.id)}
                   onConnectFailed={() => onSessionFailed(s.id)}
                   onLocalPathChange={onLocalPathChange}
+                  onLocalSortChange={onLocalSortChange}
                 />
               )}
             </div>

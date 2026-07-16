@@ -15,6 +15,7 @@ import {
   DEFAULT_CONTEXT_LENGTH,
   UNCATEGORIZED_ID,
   normalizeConnectionTimeout,
+  type ExplorerSortPreference,
 } from '@shared/types'
 import ServerSidebar from './components/servers/ServerSidebar'
 import TopBar from './components/layout/TopBar'
@@ -429,6 +430,22 @@ const App: FC = () => {
       const current = prev.find(s => s.id === serverId)
       if (!current || current.lastLocalPath === path) return prev
       const updated = prev.map(s => (s.id === serverId ? { ...s, lastLocalPath: path } : s))
+      void window.electronAPI?.saveServers(updated)
+      return updated
+    })
+  }, [])
+
+  const handleLocalSortChange = useCallback((serverId: string, sort: ExplorerSortPreference) => {
+    setServers(prev => {
+      const current = prev.find(s => s.id === serverId)
+      if (
+        !current ||
+        (current.lastLocalSort?.column === sort.column &&
+          current.lastLocalSort?.direction === sort.direction)
+      ) {
+        return prev
+      }
+      const updated = prev.map(s => (s.id === serverId ? { ...s, lastLocalSort: sort } : s))
       void window.electronAPI?.saveServers(updated)
       return updated
     })
@@ -967,6 +984,7 @@ const App: FC = () => {
               onSessionClosed={markConnectionLost}
               onSessionEnded={id => void disconnectServer(id)}
               onLocalPathChange={handleLocalPathChange}
+              onLocalSortChange={handleLocalSortChange}
               aiEnabled={aiEnabled}
               aiChatOpen={aiChatOpen}
               onToggleAIChat={toggleAIChat}

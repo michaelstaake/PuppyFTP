@@ -1,7 +1,14 @@
 import { useEffect, useState, useCallback, useImperativeHandle, forwardRef, useRef, useMemo } from 'react'
 import { Server } from '@shared/types'
-import type { ExploreProgressEvent, FileEntry, RemoteCacheEntry } from '@shared/types'
-import { ArrowUp, Folder, File as FileIcon, FolderPlus, Upload, Download, Pencil, Trash2, Shield } from 'lucide-react'
+import type {
+  ExploreProgressEvent,
+  ExplorerSortColumn,
+  ExplorerSortDirection,
+  ExplorerSortPreference,
+  FileEntry,
+  RemoteCacheEntry,
+} from '@shared/types'
+import { ArrowUp, ArrowDown, Folder, File as FileIcon, FolderPlus, Upload, Download, Pencil, Trash2, Shield } from 'lucide-react'
 import { useTransferStore } from '../../store/transferStore'
 import { useExplorerStore } from '../../store/explorerStore'
 import PermissionsDialog from './PermissionsDialog'
@@ -13,6 +20,8 @@ interface DualPaneExplorerProps {
   onConnectFailed?: () => void
   /** Persist last local folder for this server (survives app restart). */
   onLocalPathChange?: (serverId: string, path: string) => void
+  /** Persist last local list sort for this server (survives app restart). */
+  onLocalSortChange?: (serverId: string, sort: ExplorerSortPreference) => void
 }
 
 export type DualPaneExplorerHandle = {
@@ -37,10 +46,49 @@ type DragPayload = {
   entries: FileEntry[]
 }
 
-function sortEntries(entries: FileEntry[]): FileEntry[] {
-  return [...entries].sort((a, b) =>
-    a.type === b.type ? a.name.localeCompare(b.name) : a.type === 'dir' ? -1 : 1
-  )
+const DEFAULT_SORT: ExplorerSortPreference = { column: 'name', direction: 'asc' }
+
+function normalizeSort(sort?: ExplorerSortPreference | null): ExplorerSortPreference {
+  if (!sort) return DEFAULT_SORT
+  const column: ExplorerSortColumn =
+    sort.column === 'size' || sort.column === 'type' ? sort.column : 'name'
+  const direction: ExplorerSortDirection = sort.direction === 'desc' ? 'desc' : 'asc'
+  return { column, direction }
+}
+
+function entryTypeLabel(entry: FileEntry): string {
+  if (entry.type === 'dir') return 'Folder'
+  const idx = entry.name.lastIndexOf('.')
+  if (idx <= 0 || idx === entry.name.length - 1) return 'File'
+  return entry.name.slice(idx + 1).toUpperCase()
+}
+
+function sortEntries(
+  entries: FileEntry[],
+  column: ExplorerSortColumn,
+  direction: ExplorerSortDirection
+): FileEntry[] {
+  const dirMul = direction === 'asc' ? 1 : -1
+  return [...entries].sort((a, b) => {
+    if (a.type !== b.type) return a.type === 'dir' ? -1 : 1
+
+    if (column === 'name') {
+      const cmp = a.name.localeCompare(b.name)
+      // Name desc: folders stay A–Z; only files reverse.
+      if (a.type === 'dir') return cmp
+      return dirMul * cmp
+    }
+
+    if (column === 'size') {
+      const cmp = (a.size || 0) - (b.size || 0)
+      if (cmp !== 0) return dirMul * cmp
+      return a.name.localeCompare(b.name)
+    }
+
+    const typeCmp = entryTypeLabel(a).localeCompare(entryTypeLabel(b))
+    if (typeCmp !== 0) return dirMul * typeCmp
+    return a.name.localeCompare(b.name)
+  })
 }
 
 function parentDir(filePath: string, isLocal: boolean): string {
@@ -61,7 +109,7 @@ function joinName(dirPath: string, name: string, isLocal: boolean): string {
 }
 
 const DualPaneExplorer = forwardRef<DualPaneExplorerHandle, DualPaneExplorerProps>(function DualPaneExplorer(
-  { server, onStatusChange, onConnected, onConnectFailed, onLocalPathChange },
+  { server, onStatusChange, onConnected, onConnectFailed, onLocalPathChange, onLocalSortChange },
   ref
 ) {
   const stored = useExplorerStore.getState().getPaths(server.id, server.lastLocalPath)
@@ -69,12 +117,15 @@ const DualPaneExplorer = forwardRef<DualPaneExplorerHandle, DualPaneExplorerProp
   const setStoredRemote = useExplorerStore(s => s.setRemotePath)
   const onLocalPathChangeRef = useRef(onLocalPathChange)
   onLocalPathChangeRef.current = onLocalPathChange
+  const onLocalSortChangeRef = useRef(onLocalSortChange)
+  onLocalSortChangeRef.current = onLocalSortChange
 
   const [localPath, setLocalPath] = useState(stored.localPath)
   const [remotePath, setRemotePath] = useState(stored.remotePath)
   const [localEntries, setLocalEntries] = useState<FileEntry[]>([])
   const [remoteEntries, setRemoteEntries] = useState<FileEntry[]>([])
   const [loading, setLoading] = useState(false)
+  const [sort, setSort] = useState<ExplorerSortPreference>(() => normalizeSort(server.lastLocalSort))
   const enqueueTransfer = useTransferStore(s => s.enqueue)
   const transfers = useTransferStore(s => s.transfers)
 
@@ -100,8 +151,25 @@ const DualPaneExplorer = forwardRef<DualPaneExplorerHandle, DualPaneExplorerProp
   onConnectedRef.current = onConnected
   onConnectFailedRef.current = onConnectFailed
 
-  const sortedLocal = useMemo(() => sortEntries(localEntries), [localEntries])
-  const sortedRemote = useMemo(() => sortEntries(remoteEntries), [remoteEntries])
+  const sortedLocal = useMemo(
+    () => sortEntries(localEntries, sort.column, sort.direction),
+    [localEntries, sort.column, sort.direction]
+  )
+  const sortedRemote = useMemo(
+    () => sortEntries(remoteEntries, sort.column, sort.direction),
+    [remoteEntries, sort.column, sort.direction]
+  )
+
+  const handleSortClick = useCallback((column: ExplorerSortColumn) => {
+    setSort(prev => {
+      const next: ExplorerSortPreference =
+        prev.column === column
+          ? { column, direction: prev.direction === 'asc' ? 'desc' : 'asc' }
+          : { column, direction: 'asc' }
+      onLocalSortChangeRef.current?.(server.id, next)
+      return next
+    })
+  }, [server.id])
 
   const refreshLocal = useCallback(async (p = localPath) => {
     try {
@@ -563,9 +631,33 @@ const DualPaneExplorer = forwardRef<DualPaneExplorerHandle, DualPaneExplorerProp
     const selected = getSelection(side)
     const isLocal = side === 'local'
 
+    const headerBtn = (column: ExplorerSortColumn, label: string, className: string) => {
+      const active = sort.column === column
+      return (
+        <button
+          type="button"
+          onClick={e => {
+            e.stopPropagation()
+            handleSortClick(column)
+          }}
+          className={`flex items-center gap-0.5 hover:text-foreground ${className} ${
+            active ? 'text-foreground' : 'text-muted-foreground'
+          }`}
+          title={`Sort by ${label}`}
+        >
+          <span>{label}</span>
+          {active && (
+            sort.direction === 'asc'
+              ? <ArrowUp className="h-3 w-3 shrink-0" aria-hidden />
+              : <ArrowDown className="h-3 w-3 shrink-0" aria-hidden />
+          )}
+        </button>
+      )
+    }
+
     return (
       <div
-        className={`flex-1 overflow-auto text-sm p-1 font-mono min-h-0 ${
+        className={`flex-1 overflow-auto text-sm font-mono min-h-0 flex flex-col ${
           dropTarget === side ? 'bg-accent/10 ring-1 ring-inset ring-accent/40' : ''
         }`}
         onClick={() => clearPaneSelection(side)}
@@ -573,62 +665,74 @@ const DualPaneExplorer = forwardRef<DualPaneExplorerHandle, DualPaneExplorerProp
         onDragLeave={e => onPaneDragLeave(e, side)}
         onDrop={e => onPaneDrop(e, side)}
       >
-        {entries.map((e, idx) => {
-          const isSelected = selected.has(e.path)
-          return (
-            <div
-              key={e.path}
-              draggable
-              className={`flex items-center gap-2 px-2 py-0.5 rounded cursor-default group select-none ${
-                isSelected ? 'bg-accent/25 text-foreground' : 'hover:bg-muted/60'
-              }`}
-              onClick={ev => {
-                ev.stopPropagation()
-                handleItemClick(ev, side, e, idx)
-              }}
-              onDoubleClick={ev => {
-                ev.stopPropagation()
-                handleItemDoubleClick(side, e)
-              }}
-              onContextMenu={ev => openContextMenu(ev, side, e, idx)}
-              onDragStart={ev => onRowDragStart(ev, side, e)}
-              onDragEnd={() => {
-                dragPayloadRef.current = null
-                setDropTarget(null)
-              }}
-            >
-              {e.type === 'dir' ? (
-                <Folder className="h-4 w-4 shrink-0 text-accent pointer-events-none" aria-hidden />
-              ) : (
-                <FileIcon className="h-4 w-4 shrink-0 text-muted-foreground pointer-events-none" aria-hidden />
-              )}
-              <span className="flex-1 truncate pointer-events-none">
-                {e.name}
-              </span>
-              <span className="text-[10px] text-muted-foreground w-16 text-right pointer-events-none">
-                {e.type === 'dir' ? '' : ((e.size || 0) / 1024).toFixed(1) + 'k'}
-              </span>
-              <button
-                type="button"
+        <div className="sticky top-0 z-10 flex items-center gap-2 px-2 py-1 text-[10px] uppercase tracking-wide bg-card/95 border-b border-border select-none">
+          <span className="w-4 shrink-0" aria-hidden />
+          {headerBtn('name', 'Name', 'flex-1 min-w-0 justify-start')}
+          {headerBtn('size', 'Size', 'w-16 justify-end')}
+          {headerBtn('type', 'Type', 'w-14 justify-start')}
+          <span className="w-8 shrink-0" aria-hidden />
+        </div>
+        <div className="flex-1 p-1 min-h-0">
+          {entries.map((e, idx) => {
+            const isSelected = selected.has(e.path)
+            return (
+              <div
+                key={e.path}
+                draggable
+                className={`flex items-center gap-2 px-2 py-0.5 rounded cursor-default group select-none ${
+                  isSelected ? 'bg-accent/25 text-foreground' : 'hover:bg-muted/60'
+                }`}
                 onClick={ev => {
                   ev.stopPropagation()
-                  const toSend =
-                    selected.has(e.path) && selected.size > 1
-                      ? entriesForSelection(side)
-                      : [e]
-                  transferEntries(isLocal, toSend)
+                  handleItemClick(ev, side, e, idx)
                 }}
-                className="opacity-0 group-hover:opacity-100 p-1.5 text-accent hover:bg-accent/15 rounded"
-                title={isLocal ? 'Upload' : 'Download'}
+                onDoubleClick={ev => {
+                  ev.stopPropagation()
+                  handleItemDoubleClick(side, e)
+                }}
+                onContextMenu={ev => openContextMenu(ev, side, e, idx)}
+                onDragStart={ev => onRowDragStart(ev, side, e)}
+                onDragEnd={() => {
+                  dragPayloadRef.current = null
+                  setDropTarget(null)
+                }}
               >
-                {isLocal
-                  ? <Upload className="h-5 w-5" />
-                  : <Download className="h-5 w-5" />}
-              </button>
-            </div>
-          )
-        })}
-        {entries.length === 0 && <div className="p-2 text-muted-foreground text-xs">Empty</div>}
+                {e.type === 'dir' ? (
+                  <Folder className="h-4 w-4 shrink-0 text-accent pointer-events-none" aria-hidden />
+                ) : (
+                  <FileIcon className="h-4 w-4 shrink-0 text-muted-foreground pointer-events-none" aria-hidden />
+                )}
+                <span className="flex-1 truncate pointer-events-none min-w-0">
+                  {e.name}
+                </span>
+                <span className="text-[10px] text-muted-foreground w-16 text-right pointer-events-none shrink-0">
+                  {e.type === 'dir' ? '' : ((e.size || 0) / 1024).toFixed(1) + 'k'}
+                </span>
+                <span className="text-[10px] text-muted-foreground w-14 truncate pointer-events-none shrink-0">
+                  {entryTypeLabel(e)}
+                </span>
+                <button
+                  type="button"
+                  onClick={ev => {
+                    ev.stopPropagation()
+                    const toSend =
+                      selected.has(e.path) && selected.size > 1
+                        ? entriesForSelection(side)
+                        : [e]
+                    transferEntries(isLocal, toSend)
+                  }}
+                  className="opacity-0 group-hover:opacity-100 p-1.5 text-accent hover:bg-accent/15 rounded shrink-0"
+                  title={isLocal ? 'Upload' : 'Download'}
+                >
+                  {isLocal
+                    ? <Upload className="h-5 w-5" />
+                    : <Download className="h-5 w-5" />}
+                </button>
+              </div>
+            )
+          })}
+          {entries.length === 0 && <div className="p-2 text-muted-foreground text-xs">Empty</div>}
+        </div>
       </div>
     )
   }
