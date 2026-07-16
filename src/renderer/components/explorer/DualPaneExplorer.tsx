@@ -22,6 +22,8 @@ interface DualPaneExplorerProps {
   onLocalPathChange?: (serverId: string, path: string) => void
   /** Persist last local list sort for this server (survives app restart). */
   onLocalSortChange?: (serverId: string, sort: ExplorerSortPreference) => void
+  /** Persist last remote list sort for this server (survives app restart). */
+  onRemoteSortChange?: (serverId: string, sort: ExplorerSortPreference) => void
 }
 
 export type DualPaneExplorerHandle = {
@@ -48,10 +50,16 @@ type DragPayload = {
 
 const DEFAULT_SORT: ExplorerSortPreference = { column: 'name', direction: 'asc' }
 
-function normalizeSort(sort?: ExplorerSortPreference | null): ExplorerSortPreference {
+const SORT_COLUMNS: ExplorerSortColumn[] = ['name', 'size', 'type', 'mtime', 'permissions']
+
+function normalizeSort(
+  sort?: ExplorerSortPreference | null,
+  side: PaneSide = 'local'
+): ExplorerSortPreference {
   if (!sort) return DEFAULT_SORT
-  const column: ExplorerSortColumn =
-    sort.column === 'size' || sort.column === 'type' ? sort.column : 'name'
+  let column: ExplorerSortColumn = SORT_COLUMNS.includes(sort.column) ? sort.column : 'name'
+  // Permissions column exists only on the remote pane.
+  if (side === 'local' && column === 'permissions') column = 'name'
   const direction: ExplorerSortDirection = sort.direction === 'desc' ? 'desc' : 'asc'
   return { column, direction }
 }
@@ -61,6 +69,21 @@ function entryTypeLabel(entry: FileEntry): string {
   const idx = entry.name.lastIndexOf('.')
   if (idx <= 0 || idx === entry.name.length - 1) return 'File'
   return entry.name.slice(idx + 1).toUpperCase()
+}
+
+function formatMtime(mtime: number): string {
+  if (!mtime) return ''
+  try {
+    return new Date(mtime).toLocaleString(undefined, {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+  } catch {
+    return ''
+  }
 }
 
 function sortEntries(
@@ -81,6 +104,18 @@ function sortEntries(
 
     if (column === 'size') {
       const cmp = (a.size || 0) - (b.size || 0)
+      if (cmp !== 0) return dirMul * cmp
+      return a.name.localeCompare(b.name)
+    }
+
+    if (column === 'mtime') {
+      const cmp = (a.mtime || 0) - (b.mtime || 0)
+      if (cmp !== 0) return dirMul * cmp
+      return a.name.localeCompare(b.name)
+    }
+
+    if (column === 'permissions') {
+      const cmp = (a.permissions || '').localeCompare(b.permissions || '')
       if (cmp !== 0) return dirMul * cmp
       return a.name.localeCompare(b.name)
     }
@@ -109,7 +144,7 @@ function joinName(dirPath: string, name: string, isLocal: boolean): string {
 }
 
 const DualPaneExplorer = forwardRef<DualPaneExplorerHandle, DualPaneExplorerProps>(function DualPaneExplorer(
-  { server, onStatusChange, onConnected, onConnectFailed, onLocalPathChange, onLocalSortChange },
+  { server, onStatusChange, onConnected, onConnectFailed, onLocalPathChange, onLocalSortChange, onRemoteSortChange },
   ref
 ) {
   const stored = useExplorerStore.getState().getPaths(server.id, server.lastLocalPath)
@@ -119,13 +154,20 @@ const DualPaneExplorer = forwardRef<DualPaneExplorerHandle, DualPaneExplorerProp
   onLocalPathChangeRef.current = onLocalPathChange
   const onLocalSortChangeRef = useRef(onLocalSortChange)
   onLocalSortChangeRef.current = onLocalSortChange
+  const onRemoteSortChangeRef = useRef(onRemoteSortChange)
+  onRemoteSortChangeRef.current = onRemoteSortChange
 
   const [localPath, setLocalPath] = useState(stored.localPath)
   const [remotePath, setRemotePath] = useState(stored.remotePath)
   const [localEntries, setLocalEntries] = useState<FileEntry[]>([])
   const [remoteEntries, setRemoteEntries] = useState<FileEntry[]>([])
   const [loading, setLoading] = useState(false)
-  const [sort, setSort] = useState<ExplorerSortPreference>(() => normalizeSort(server.lastLocalSort))
+  const [localSort, setLocalSort] = useState<ExplorerSortPreference>(() =>
+    normalizeSort(server.lastLocalSort, 'local')
+  )
+  const [remoteSort, setRemoteSort] = useState<ExplorerSortPreference>(() =>
+    normalizeSort(server.lastRemoteSort, 'remote')
+  )
   const enqueueTransfer = useTransferStore(s => s.enqueue)
   const transfers = useTransferStore(s => s.transfers)
 
@@ -152,21 +194,23 @@ const DualPaneExplorer = forwardRef<DualPaneExplorerHandle, DualPaneExplorerProp
   onConnectFailedRef.current = onConnectFailed
 
   const sortedLocal = useMemo(
-    () => sortEntries(localEntries, sort.column, sort.direction),
-    [localEntries, sort.column, sort.direction]
+    () => sortEntries(localEntries, localSort.column, localSort.direction),
+    [localEntries, localSort.column, localSort.direction]
   )
   const sortedRemote = useMemo(
-    () => sortEntries(remoteEntries, sort.column, sort.direction),
-    [remoteEntries, sort.column, sort.direction]
+    () => sortEntries(remoteEntries, remoteSort.column, remoteSort.direction),
+    [remoteEntries, remoteSort.column, remoteSort.direction]
   )
 
-  const handleSortClick = useCallback((column: ExplorerSortColumn) => {
+  const handleSortClick = useCallback((side: PaneSide, column: ExplorerSortColumn) => {
+    const setSort = side === 'local' ? setLocalSort : setRemoteSort
+    const persist = side === 'local' ? onLocalSortChangeRef : onRemoteSortChangeRef
     setSort(prev => {
       const next: ExplorerSortPreference =
         prev.column === column
           ? { column, direction: prev.direction === 'asc' ? 'desc' : 'asc' }
           : { column, direction: 'asc' }
-      onLocalSortChangeRef.current?.(server.id, next)
+      persist.current?.(server.id, next)
       return next
     })
   }, [server.id])
@@ -630,6 +674,7 @@ const DualPaneExplorer = forwardRef<DualPaneExplorerHandle, DualPaneExplorerProp
     const entries = side === 'local' ? sortedLocal : sortedRemote
     const selected = getSelection(side)
     const isLocal = side === 'local'
+    const sort = isLocal ? localSort : remoteSort
 
     const headerBtn = (column: ExplorerSortColumn, label: string, className: string) => {
       const active = sort.column === column
@@ -638,14 +683,14 @@ const DualPaneExplorer = forwardRef<DualPaneExplorerHandle, DualPaneExplorerProp
           type="button"
           onClick={e => {
             e.stopPropagation()
-            handleSortClick(column)
+            handleSortClick(side, column)
           }}
           className={`flex items-center gap-0.5 hover:text-foreground ${className} ${
             active ? 'text-foreground' : 'text-muted-foreground'
           }`}
           title={`Sort by ${label}`}
         >
-          <span>{label}</span>
+          <span className="truncate">{label}</span>
           {active && (
             sort.direction === 'asc'
               ? <ArrowUp className="h-3 w-3 shrink-0" aria-hidden />
@@ -668,8 +713,10 @@ const DualPaneExplorer = forwardRef<DualPaneExplorerHandle, DualPaneExplorerProp
         <div className="sticky top-0 z-10 flex items-center gap-2 px-2 py-1 text-[10px] uppercase tracking-wide bg-card/95 border-b border-border select-none">
           <span className="w-4 shrink-0" aria-hidden />
           {headerBtn('name', 'Name', 'flex-1 min-w-0 justify-start')}
-          {headerBtn('size', 'Size', 'w-16 justify-end')}
-          {headerBtn('type', 'Type', 'w-14 justify-start')}
+          {headerBtn('size', 'Size', 'w-14 justify-end shrink-0')}
+          {headerBtn('type', 'Type', 'w-12 justify-start shrink-0')}
+          {headerBtn('mtime', 'Last modified', 'w-[7.5rem] justify-start shrink-0')}
+          {!isLocal && headerBtn('permissions', 'Permissions', 'w-[5.5rem] justify-start shrink-0')}
           <span className="w-8 shrink-0" aria-hidden />
         </div>
         <div className="flex-1 p-1 min-h-0">
@@ -705,12 +752,20 @@ const DualPaneExplorer = forwardRef<DualPaneExplorerHandle, DualPaneExplorerProp
                 <span className="flex-1 truncate pointer-events-none min-w-0">
                   {e.name}
                 </span>
-                <span className="text-[10px] text-muted-foreground w-16 text-right pointer-events-none shrink-0">
+                <span className="text-[10px] text-muted-foreground w-14 text-right pointer-events-none shrink-0">
                   {e.type === 'dir' ? '' : ((e.size || 0) / 1024).toFixed(1) + 'k'}
                 </span>
-                <span className="text-[10px] text-muted-foreground w-14 truncate pointer-events-none shrink-0">
+                <span className="text-[10px] text-muted-foreground w-12 truncate pointer-events-none shrink-0">
                   {entryTypeLabel(e)}
                 </span>
+                <span className="text-[10px] text-muted-foreground w-[7.5rem] truncate pointer-events-none shrink-0">
+                  {formatMtime(e.mtime)}
+                </span>
+                {!isLocal && (
+                  <span className="text-[10px] text-muted-foreground w-[5.5rem] truncate pointer-events-none shrink-0">
+                    {e.permissions || ''}
+                  </span>
+                )}
                 <button
                   type="button"
                   onClick={ev => {

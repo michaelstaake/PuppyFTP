@@ -451,6 +451,22 @@ const App: FC = () => {
     })
   }, [])
 
+  const handleRemoteSortChange = useCallback((serverId: string, sort: ExplorerSortPreference) => {
+    setServers(prev => {
+      const current = prev.find(s => s.id === serverId)
+      if (
+        !current ||
+        (current.lastRemoteSort?.column === sort.column &&
+          current.lastRemoteSort?.direction === sort.direction)
+      ) {
+        return prev
+      }
+      const updated = prev.map(s => (s.id === serverId ? { ...s, lastRemoteSort: sort } : s))
+      void window.electronAPI?.saveServers(updated)
+      return updated
+    })
+  }, [])
+
   const updateCategories = async (newCategories: Category[]) => {
     setCategories(newCategories)
     if (window.electronAPI) await window.electronAPI.saveCategories(newCategories)
@@ -985,6 +1001,7 @@ const App: FC = () => {
               onSessionEnded={id => void disconnectServer(id)}
               onLocalPathChange={handleLocalPathChange}
               onLocalSortChange={handleLocalSortChange}
+              onRemoteSortChange={handleRemoteSortChange}
               aiEnabled={aiEnabled}
               aiChatOpen={aiChatOpen}
               onToggleAIChat={toggleAIChat}

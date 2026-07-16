@@ -137,10 +137,12 @@ export interface Server {
   lastLocalPath?: string
   /** Last local explorer list sort for this server (file-transfer sessions). */
   lastLocalSort?: ExplorerSortPreference
+  /** Last remote explorer list sort for this server (file-transfer sessions). */
+  lastRemoteSort?: ExplorerSortPreference
   order: number
 }
 
-export type ExplorerSortColumn = 'name' | 'size' | 'type'
+export type ExplorerSortColumn = 'name' | 'size' | 'type' | 'mtime' | 'permissions'
 export type ExplorerSortDirection = 'asc' | 'desc'
 
 export interface ExplorerSortPreference {

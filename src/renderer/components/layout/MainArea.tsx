@@ -45,6 +45,8 @@ interface MainAreaProps {
   onLocalPathChange?: (serverId: string, path: string) => void
   /** Persist last local explorer sort per server. */
   onLocalSortChange?: (serverId: string, sort: ExplorerSortPreference) => void
+  /** Persist last remote explorer sort per server. */
+  onRemoteSortChange?: (serverId: string, sort: ExplorerSortPreference) => void
 }
 
 const MainArea: React.FC<MainAreaProps> = ({
@@ -71,6 +73,7 @@ const MainArea: React.FC<MainAreaProps> = ({
   onSessionEnded,
   onLocalPathChange,
   onLocalSortChange,
+  onRemoteSortChange,
 }) => {
   const explorerRef = React.useRef<DualPaneExplorerHandle>(null)
   const xtermRefs = React.useRef<Record<string, XTermHandle | null>>({})
@@ -420,6 +423,7 @@ const MainArea: React.FC<MainAreaProps> = ({
                   onConnectFailed={() => onSessionFailed(s.id)}
                   onLocalPathChange={onLocalPathChange}
                   onLocalSortChange={onLocalSortChange}
+                  onRemoteSortChange={onRemoteSortChange}
                 />
               )}
             </div>
