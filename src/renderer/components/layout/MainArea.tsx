@@ -1,7 +1,16 @@
 import React from 'react'
 import { Server, protocolLabel } from '@shared/types'
-import { MessageCircle, RefreshCw, TreePine, Unplug, WifiOff, Loader2 } from 'lucide-react'
-import XTerm from '../terminal/XTerm'
+import {
+  MessageCircle,
+  RefreshCw,
+  TreePine,
+  Unplug,
+  WifiOff,
+  Loader2,
+  SquareArrowOutUpRight,
+  SquareArrowDownLeft,
+} from 'lucide-react'
+import XTerm, { XTermHandle } from '../terminal/XTerm'
 import DualPaneExplorer, { DualPaneExplorerHandle } from '../explorer/DualPaneExplorer'
 
 interface MainAreaProps {
@@ -12,9 +21,15 @@ interface MainAreaProps {
   isConnectionLost: boolean
   isConnectionFailed: boolean
   sessionGenerationByServerId: Record<string, number>
+  /** SSH sessions currently shown in a separate window. */
+  poppedOutByServerId: Record<string, boolean>
+  /** When docking back, remount XTerm attached to this session id. */
+  attachSessionIdByServerId: Record<string, string>
   onConnect: () => void
   onDisconnect: () => void
   onReconnect: () => void
+  onPopOutError?: (message: string) => void
+  onAttachConsumed: (serverId: string) => void
   aiEnabled: boolean
   aiChatOpen?: boolean
   onToggleAIChat: () => void
@@ -31,9 +46,13 @@ const MainArea: React.FC<MainAreaProps> = ({
   isConnectionLost,
   isConnectionFailed,
   sessionGenerationByServerId,
+  poppedOutByServerId,
+  attachSessionIdByServerId,
   onConnect,
   onDisconnect,
   onReconnect,
+  onPopOutError,
+  onAttachConsumed,
   aiEnabled,
   aiChatOpen = false,
   onToggleAIChat,
@@ -42,6 +61,7 @@ const MainArea: React.FC<MainAreaProps> = ({
   onSessionClosed,
 }) => {
   const explorerRef = React.useRef<DualPaneExplorerHandle>(null)
+  const xtermRefs = React.useRef<Record<string, XTermHandle | null>>({})
   const [explorerStatus, setExplorerStatus] = React.useState({ loading: false, isExploring: false })
   const [appVersion, setAppVersion] = React.useState<string | null>(null)
 
@@ -66,6 +86,26 @@ const MainArea: React.FC<MainAreaProps> = ({
     }
   }, [])
 
+  const handleTogglePopOut = React.useCallback(() => {
+    if (!server || server.protocol !== 'ssh') return
+    const id = server.id
+    if (poppedOutByServerId[id]) {
+      void window.electronAPI?.dockTerminal?.(id).then(result => {
+        if (!result?.success) {
+          onPopOutError?.(result?.error || 'Could not return terminal to main window')
+        }
+      })
+      return
+    }
+    xtermRefs.current[id]?.prepareDetach()
+    void window.electronAPI?.popOutTerminal?.(id).then(result => {
+      if (!result?.success) {
+        xtermRefs.current[id]?.cancelDetach()
+        onPopOutError?.(result?.error || 'Could not open terminal in a new window')
+      }
+    })
+  }, [server, poppedOutByServerId, onPopOutError])
+
   if (!server) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center bg-surface text-center p-8">
@@ -88,6 +128,8 @@ const MainArea: React.FC<MainAreaProps> = ({
     server.protocol === 'ftps' ||
     server.protocol === 'ftps-implicit'
 
+  const isSshTerminal = server.protocol === 'ssh'
+  const isPoppedOut = !!poppedOutByServerId[server.id]
   const sessionOpen = isConnected || isConnecting || isConnectionLost || isConnectionFailed
   const blockContent = isConnecting || isConnectionLost || isConnectionFailed
 
@@ -126,6 +168,22 @@ const MainArea: React.FC<MainAreaProps> = ({
                 <TreePine className="h-4 w-4" />
               </button>
             </>
+          )}
+
+          {isConnected && isSshTerminal && (
+            <button
+              type="button"
+              onClick={handleTogglePopOut}
+              title={isPoppedOut ? 'Return to main window' : 'Open in new window'}
+              aria-label={isPoppedOut ? 'Return to main window' : 'Open in new window'}
+              className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted"
+            >
+              {isPoppedOut ? (
+                <SquareArrowDownLeft className="h-4 w-4" />
+              ) : (
+                <SquareArrowOutUpRight className="h-4 w-4" />
+              )}
+            </button>
           )}
 
           {isConnected && (
@@ -225,6 +283,16 @@ const MainArea: React.FC<MainAreaProps> = ({
           </div>
         )}
 
+        {isConnected && isPoppedOut && isSshTerminal && (
+          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-surface text-muted-foreground">
+            <SquareArrowOutUpRight className="h-8 w-8 opacity-50" aria-hidden />
+            <div className="text-sm font-medium text-foreground">Session open in other window.</div>
+            <div className="text-xs opacity-80">
+              Click the return button in the bar above to bring it back.
+            </div>
+          </div>
+        )}
+
         {connectedServers.map(s => {
           const isActive = isConnected && s.id === server.id
           const sIsTerminal = s.protocol === 'ssh'
@@ -234,22 +302,31 @@ const MainArea: React.FC<MainAreaProps> = ({
             s.protocol === 'ftps' ||
             s.protocol === 'ftps-implicit'
           const generation = sessionGenerationByServerId[s.id] || 0
+          const sPoppedOut = !!poppedOutByServerId[s.id]
+          const attachSessionId = attachSessionIdByServerId[s.id] || null
 
           return (
             <div
               key={`${s.id}-${generation}`}
               className={
-                sessionOpen && s.id === server.id
+                sessionOpen && s.id === server.id && !sPoppedOut
                   ? `h-full w-full ${blockContent ? 'invisible pointer-events-none' : ''}`
                   : 'hidden'
               }
-              aria-hidden={!isActive}
+              aria-hidden={!isActive || sPoppedOut}
             >
-              {sIsTerminal && (
+              {sIsTerminal && !sPoppedOut && (
                 <XTerm
+                  ref={handle => {
+                    xtermRefs.current[s.id] = handle
+                  }}
                   server={s}
+                  existingSessionId={attachSessionId}
                   active={isActive || (isConnecting && s.id === server.id)}
-                  onConnected={() => onSessionConnected(s.id)}
+                  onConnected={() => {
+                    if (attachSessionId) onAttachConsumed(s.id)
+                    onSessionConnected(s.id)
+                  }}
                   onConnectFailed={() => onSessionFailed(s.id)}
                   onDisconnected={() => onSessionClosed(s.id)}
                 />

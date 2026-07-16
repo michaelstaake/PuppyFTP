@@ -45,6 +45,17 @@ const api: ElectronAPI = {
   sendTerminalData: (sessionId: string, data: string): Promise<void> => ipcRenderer.invoke('terminal:input', sessionId, data),
   resizeTerminal: (sessionId: string, cols: number, rows: number): Promise<void> => ipcRenderer.invoke('terminal:resize', sessionId, cols, rows),
   closeTerminal: (sessionId: string): Promise<void> => ipcRenderer.invoke('terminal:close', sessionId),
+  claimTerminal: (sessionId: string): Promise<boolean> => ipcRenderer.invoke('terminal:claim', sessionId),
+  popOutTerminal: (
+    serverId: string
+  ): Promise<{ success: boolean; sessionId?: string; alreadyOpen?: boolean; error?: string }> =>
+    ipcRenderer.invoke('terminal:pop-out', serverId),
+  dockTerminal: (
+    serverId: string
+  ): Promise<{ success: boolean; sessionId?: string; error?: string }> =>
+    ipcRenderer.invoke('terminal:dock', serverId),
+  closeTerminalForServer: (serverId: string): Promise<boolean> =>
+    ipcRenderer.invoke('terminal:close-for-server', serverId),
   onTerminalData: (callback: (sessionId: string, data: string) => void): (() => void) => {
     const listener = (_e: Electron.IpcRendererEvent, sessionId: string, data: string) => callback(sessionId, data)
     ipcRenderer.on('terminal:data', listener)
@@ -54,6 +65,21 @@ const api: ElectronAPI = {
     const listener = (_e: Electron.IpcRendererEvent, sessionId: string) => callback(sessionId)
     ipcRenderer.on('terminal:exit', listener)
     return () => ipcRenderer.removeListener('terminal:exit', listener)
+  },
+  onTerminalPopoutState: (
+    callback: (state: {
+      serverId: string
+      poppedOut: boolean
+      sessionId?: string
+      ended?: boolean
+    }) => void
+  ): (() => void) => {
+    const listener = (
+      _e: Electron.IpcRendererEvent,
+      state: { serverId: string; poppedOut: boolean; sessionId?: string; ended?: boolean }
+    ) => callback(state)
+    ipcRenderer.on('terminal:popout-state', listener)
+    return () => ipcRenderer.removeListener('terminal:popout-state', listener)
   },
 
   // Explorer Phase 3 + 4

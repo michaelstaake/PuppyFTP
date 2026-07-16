@@ -1,0 +1,105 @@
+import React, { useEffect, useState } from 'react'
+import { Server, protocolLabel } from '@shared/types'
+import { applyResolvedTheme, normalizeThemePreference, resolveTheme } from '../../lib/theme'
+import XTerm from './XTerm'
+
+interface TerminalPopoutAppProps {
+  serverId: string
+  sessionId: string
+}
+
+const TerminalPopoutApp: React.FC<TerminalPopoutAppProps> = ({ serverId, sessionId }) => {
+  const [server, setServer] = useState<Server | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [closed, setClosed] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    const boot = async () => {
+      try {
+        const settings = await window.electronAPI?.getSettings?.()
+        if (settings) {
+          const preference = normalizeThemePreference(settings.theme)
+          const resolved = await resolveTheme(preference)
+          if (!cancelled) applyResolvedTheme(resolved)
+        }
+        const servers = await window.electronAPI?.getServers?.()
+        const match = servers?.find(s => s.id === serverId) ?? null
+        if (cancelled) return
+        if (!match) {
+          setError('Server not found')
+          return
+        }
+        setServer(match)
+        document.title = `SSH — ${match.name}`
+      } catch (e) {
+        if (!cancelled) setError(String(e))
+      }
+    }
+    void boot()
+    return () => {
+      cancelled = true
+    }
+  }, [serverId])
+
+  useEffect(() => {
+    if (!window.electronAPI?.onSystemThemeChange) return
+    return window.electronAPI.onSystemThemeChange(resolved => {
+      applyResolvedTheme(resolved)
+    })
+  }, [])
+
+  if (error) {
+    return (
+      <div className="h-screen w-screen flex items-center justify-center bg-surface text-sm text-muted-foreground">
+        {error}
+      </div>
+    )
+  }
+
+  if (!server) {
+    return (
+      <div className="h-screen w-screen flex items-center justify-center bg-surface text-sm text-muted-foreground">
+        Loading terminal…
+      </div>
+    )
+  }
+
+  return (
+    <div className="h-screen w-screen flex flex-col bg-surface overflow-hidden">
+      <div
+        className="h-12 border-b border-border px-4 flex items-center gap-3 bg-surface-elevated shrink-0"
+        style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
+      >
+        <span
+          className="font-mono text-xs bg-muted px-2 py-0.5 rounded"
+          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+        >
+          {protocolLabel(server.protocol)}
+        </span>
+        <span className="font-medium truncate">{server.name}</span>
+        <span className="text-muted-foreground text-xs truncate">
+          — {server.username}@{server.host}:{server.port}
+        </span>
+      </div>
+      <div className="flex-1 min-h-0 overflow-hidden relative">
+        {closed ? (
+          <div className="absolute inset-0 flex items-center justify-center text-sm text-muted-foreground bg-[#0a0a0f]">
+            Session ended
+          </div>
+        ) : (
+          <XTerm
+            server={server}
+            existingSessionId={sessionId}
+            detachOnUnmount
+            active
+            onDisconnected={() => setClosed(true)}
+            onConnectFailed={() => setError('Could not attach to terminal session')}
+          />
+        )}
+      </div>
+    </div>
+  )
+}
+
+export default TerminalPopoutApp

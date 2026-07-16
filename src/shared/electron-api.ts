@@ -34,8 +34,24 @@ export type ElectronAPI = {
   sendTerminalData: (sessionId: string, data: string) => Promise<void>
   resizeTerminal: (sessionId: string, cols: number, rows: number) => Promise<void>
   closeTerminal: (sessionId: string) => Promise<void>
+  claimTerminal: (sessionId: string) => Promise<boolean>
+  popOutTerminal: (
+    serverId: string
+  ) => Promise<{ success: boolean; sessionId?: string; alreadyOpen?: boolean; error?: string }>
+  dockTerminal: (
+    serverId: string
+  ) => Promise<{ success: boolean; sessionId?: string; error?: string }>
+  closeTerminalForServer: (serverId: string) => Promise<boolean>
   onTerminalData: (callback: (sessionId: string, data: string) => void) => () => void
   onTerminalExit: (callback: (sessionId: string) => void) => () => void
+  onTerminalPopoutState: (
+    callback: (state: {
+      serverId: string
+      poppedOut: boolean
+      sessionId?: string
+      ended?: boolean
+    }) => void
+  ) => () => void
 
   listLocal: (dirPath: string) => Promise<FileEntry[]>
   listRemote: (serverId: string, dirPath: string) => Promise<FileEntry[] | null>

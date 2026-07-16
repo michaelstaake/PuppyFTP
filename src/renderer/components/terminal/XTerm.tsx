@@ -1,37 +1,67 @@
-import React, { useEffect, useRef } from 'react'
+import { useEffect, useImperativeHandle, useRef, forwardRef } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import '@xterm/xterm/css/xterm.css'
 import { Server } from '@shared/types'
 
+export interface XTermHandle {
+  /** Call before unmounting so cleanup does not end the SSH session. */
+  prepareDetach: () => void
+  /** Undo prepareDetach if pop-out did not proceed. */
+  cancelDetach: () => void
+  getSessionId: () => string | null
+}
+
 interface XTermProps {
   server: Server
   active?: boolean
+  /** Attach to an existing main-process session instead of creating a new one. */
+  existingSessionId?: string | null
+  /** When true, unmount disposes the UI but leaves the SSH session running. */
+  detachOnUnmount?: boolean
   onConnected?: () => void
   onConnectFailed?: () => void
   onDisconnected?: () => void
 }
 
-const XTerm: React.FC<XTermProps> = ({
-  server,
-  active = true,
-  onConnected,
-  onConnectFailed,
-  onDisconnected,
-}) => {
+const XTerm = forwardRef<XTermHandle, XTermProps>(function XTerm(
+  {
+    server,
+    active = true,
+    existingSessionId = null,
+    detachOnUnmount = false,
+    onConnected,
+    onConnectFailed,
+    onDisconnected,
+  },
+  ref
+) {
   const containerRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
   const sessionIdRef = useRef<string | null>(null)
   const cleanupRef = useRef<(() => void) | null>(null)
   const establishedRef = useRef(false)
+  const detachRef = useRef(false)
+  const detachOnUnmountRef = useRef(detachOnUnmount)
+  detachOnUnmountRef.current = detachOnUnmount
   const onConnectedRef = useRef(onConnected)
   const onConnectFailedRef = useRef(onConnectFailed)
   const onDisconnectedRef = useRef(onDisconnected)
   onConnectedRef.current = onConnected
   onConnectFailedRef.current = onConnectFailed
   onDisconnectedRef.current = onDisconnected
+
+  useImperativeHandle(ref, () => ({
+    prepareDetach: () => {
+      detachRef.current = true
+    },
+    cancelDetach: () => {
+      detachRef.current = false
+    },
+    getSessionId: () => sessionIdRef.current,
+  }))
 
   useEffect(() => {
     if (!containerRef.current || termRef.current) return
@@ -66,7 +96,18 @@ const XTerm: React.FC<XTermProps> = ({
             'Electron bridge unavailable (preload failed to load). Restart the app with npm run dev.'
           )
         }
-        const sessionId = await window.electronAPI.createTerminal(server)
+
+        let sessionId: string
+        if (existingSessionId) {
+          const claimed = await window.electronAPI.claimTerminal(existingSessionId)
+          if (!claimed) {
+            throw new Error('Terminal session is no longer available')
+          }
+          sessionId = existingSessionId
+        } else {
+          sessionId = await window.electronAPI.createTerminal(server)
+        }
+
         sessionIdRef.current = sessionId
         establishedRef.current = true
         onConnectedRef.current?.()
@@ -116,7 +157,9 @@ const XTerm: React.FC<XTermProps> = ({
           unsubData()
           unsubExit()
           if (sessionIdRef.current) {
-            window.electronAPI.closeTerminal(sessionIdRef.current).catch(() => {})
+            if (!detachRef.current && !detachOnUnmountRef.current) {
+              window.electronAPI.closeTerminal(sessionIdRef.current).catch(() => {})
+            }
             sessionIdRef.current = null
           }
           if (termRef.current) {
@@ -165,6 +208,6 @@ const XTerm: React.FC<XTermProps> = ({
       style={{ background: '#0a0a0f' }}
     />
   )
-}
+})
 
 export default XTerm

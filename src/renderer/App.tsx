@@ -78,6 +78,12 @@ const App: FC = () => {
   const [sessionGenerationByServerId, setSessionGenerationByServerId] = useState<
     Record<string, number>
   >({})
+  /** SSH terminals currently shown in a separate BrowserWindow. */
+  const [poppedOutByServerId, setPoppedOutByServerId] = useState<Record<string, boolean>>({})
+  /** Session ids to re-attach after docking a pop-out back into the main window. */
+  const [attachSessionIdByServerId, setAttachSessionIdByServerId] = useState<Record<string, string>>(
+    {}
+  )
   const [isLoading, setIsLoading] = useState(true)
   const [aiChatOpen, setAiChatOpen] = useState(false)
   const [aiSessions, setAiSessions] = useState<AISession[]>([])
@@ -217,6 +223,23 @@ const App: FC = () => {
       delete next[id]
       return next
     })
+    setPoppedOutByServerId(prev => {
+      if (!(id in prev)) return prev
+      const next = { ...prev }
+      delete next[id]
+      return next
+    })
+    setAttachSessionIdByServerId(prev => {
+      if (!(id in prev)) return prev
+      const next = { ...prev }
+      delete next[id]
+      return next
+    })
+    try {
+      await window.electronAPI?.closeTerminalForServer?.(id)
+    } catch (e) {
+      console.warn('close terminal failed', e)
+    }
     try {
       await window.electronAPI?.disconnectRemote?.(id)
     } catch (e) {
@@ -228,15 +251,41 @@ const App: FC = () => {
     if (selectedServerId) void disconnectServer(selectedServerId)
   }
 
+  const clearAttachSessionId = useCallback((id: string) => {
+    setAttachSessionIdByServerId(prev => {
+      if (!(id in prev)) return prev
+      const next = { ...prev }
+      delete next[id]
+      return next
+    })
+  }, [])
+
   const reconnectSelectedServer = () => {
     if (!selectedServerId) return
     const id = selectedServerId
     void (async () => {
       try {
+        await window.electronAPI?.closeTerminalForServer?.(id)
+      } catch {
+        /* ignore */
+      }
+      try {
         await window.electronAPI?.disconnectRemote?.(id)
       } catch {
         /* ignore */
       }
+      setPoppedOutByServerId(prev => {
+        if (!(id in prev)) return prev
+        const next = { ...prev }
+        delete next[id]
+        return next
+      })
+      setAttachSessionIdByServerId(prev => {
+        if (!(id in prev)) return prev
+        const next = { ...prev }
+        delete next[id]
+        return next
+      })
       // Stay in failed/lost during cleanup so late close events don't race a fresh attempt.
       setSessionGenerationByServerId(prev => ({
         ...prev,
@@ -643,6 +692,49 @@ const App: FC = () => {
     }
   }, [markConnectionLost])
 
+  useEffect(() => {
+    const unsub = window.electronAPI?.onTerminalPopoutState?.(state => {
+      if (!state?.serverId) return
+      const { serverId, poppedOut, sessionId, ended } = state
+
+      if (poppedOut) {
+        setPoppedOutByServerId(prev => ({ ...prev, [serverId]: true }))
+        setAttachSessionIdByServerId(prev => {
+          if (!(serverId in prev)) return prev
+          const next = { ...prev }
+          delete next[serverId]
+          return next
+        })
+        return
+      }
+
+      setPoppedOutByServerId(prev => {
+        if (!(serverId in prev)) return prev
+        const next = { ...prev }
+        delete next[serverId]
+        return next
+      })
+
+      if (ended) {
+        setAttachSessionIdByServerId(prev => {
+          if (!(serverId in prev)) return prev
+          const next = { ...prev }
+          delete next[serverId]
+          return next
+        })
+        markConnectionLost(serverId)
+        return
+      }
+
+      if (sessionId) {
+        setAttachSessionIdByServerId(prev => ({ ...prev, [serverId]: sessionId }))
+      }
+    })
+    return () => {
+      unsub?.()
+    }
+  }, [markConnectionLost])
+
   const handleAskAI = async (query: string) => {
     if (!selectedServer || !aiEnabled || !appSettings?.ai || aiStreaming || pendingCommandApproval) return
     const session = ensureActiveSession(selectedServer.id)
@@ -833,9 +925,13 @@ const App: FC = () => {
               isConnectionLost={isSelectedConnectionLost}
               isConnectionFailed={isSelectedConnectionFailed}
               sessionGenerationByServerId={sessionGenerationByServerId}
+              poppedOutByServerId={poppedOutByServerId}
+              attachSessionIdByServerId={attachSessionIdByServerId}
               onConnect={connectSelectedServer}
               onDisconnect={disconnectSelectedServer}
               onReconnect={reconnectSelectedServer}
+              onPopOutError={message => showToast(message, 'error')}
+              onAttachConsumed={clearAttachSessionId}
               onSessionConnected={markConnectionEstablished}
               onSessionFailed={markConnectionFailed}
               onSessionClosed={markConnectionLost}

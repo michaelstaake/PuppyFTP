@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, shell, nativeTheme, Tray, Menu, globalShortcut } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, shell, nativeTheme, Tray, Menu, globalShortcut, webContents } from 'electron'
 import { join } from 'path'
 import { readFileSync, writeFileSync, mkdirSync } from 'fs'
 import { Client } from 'ssh2'
@@ -158,6 +158,17 @@ function writeTransferHistory(store: TransferHistoryStore): void {
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 
+/** SSH terminal sessions that are currently shown in a separate BrowserWindow. */
+const terminalPopouts = new Map<
+  string,
+  {
+    window: BrowserWindow
+    sessionId: string
+    /** When true, closing the window docks the session back without ending SSH. */
+    docking: boolean
+  }
+>()
+
 function focusMainWindow(): void {
   if (!mainWindow || mainWindow.isDestroyed()) {
     if (app.isReady()) createWindow()
@@ -175,21 +186,32 @@ if (gotTheLock) {
   })
 }
 
-function applyWindowChrome(preference: ThemePreference, resolved?: ResolvedTheme): void {
-  // Sync themeSource first so shouldUseDarkColors reflects the real OS preference
-  // when switching from forced light/dark back to system.
-  syncNativeThemeSource(preference)
-  const theme = resolved ?? resolveThemePreference(preference)
-  if (!mainWindow || mainWindow.isDestroyed()) return
+function applyChromeToWindow(win: BrowserWindow, theme: ResolvedTheme): void {
+  if (win.isDestroyed()) return
   const colors = CHROME[theme]
-  mainWindow.setBackgroundColor(colors.background)
+  win.setBackgroundColor(colors.background)
   try {
-    mainWindow.setTitleBarOverlay({
+    win.setTitleBarOverlay({
       color: colors.background,
       symbolColor: colors.symbol,
       height: 48,
     })
   } catch { /* ignore */ }
+}
+
+function applyWindowChrome(preference: ThemePreference, resolved?: ResolvedTheme): void {
+  // Sync themeSource first so shouldUseDarkColors reflects the real OS preference
+  // when switching from forced light/dark back to system.
+  syncNativeThemeSource(preference)
+  const theme = resolved ?? resolveThemePreference(preference)
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    applyChromeToWindow(mainWindow, theme)
+  }
+  for (const pop of terminalPopouts.values()) {
+    if (pop.window && !pop.window.isDestroyed()) {
+      applyChromeToWindow(pop.window, theme)
+    }
+  }
 }
 
 function resolveAppIcon(): string {
@@ -413,6 +435,7 @@ interface TerminalSession {
   client: any // eslint-disable-line @typescript-eslint/no-explicit-any
   stream: any // eslint-disable-line @typescript-eslint/no-explicit-any
   serverId: string
+  ownerWebContentsId: number | null
 }
 
 const terminalSessions = new Map<string, TerminalSession>()
@@ -426,11 +449,140 @@ function generateSessionId(): string {
   return "term_" + Date.now() + "_" + Math.random().toString(36).slice(2, 10)
 }
 
-function findTerminalSessionForServer(serverId: string): TerminalSession | undefined {
-  for (const sess of terminalSessions.values()) {
-    if (sess.serverId === serverId && sess.client) return sess
+function findTerminalSessionEntryForServer(
+  serverId: string
+): { sessionId: string; session: TerminalSession } | undefined {
+  for (const [sessionId, sess] of terminalSessions) {
+    if (sess.serverId === serverId && sess.client) return { sessionId, session: sess }
   }
   return undefined
+}
+
+function findTerminalSessionForServer(serverId: string): TerminalSession | undefined {
+  return findTerminalSessionEntryForServer(serverId)?.session
+}
+
+function notifyMainPopoutState(payload: {
+  serverId: string
+  poppedOut: boolean
+  sessionId?: string
+  ended?: boolean
+}): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  mainWindow.webContents.send('terminal:popout-state', payload)
+}
+
+function sendToTerminalOwner(sessionId: string, channel: string, ...args: unknown[]): void {
+  const sess = terminalSessions.get(sessionId)
+  const ownerId = sess?.ownerWebContentsId
+  if (ownerId != null) {
+    try {
+      const wc = webContents.fromId(ownerId)
+      if (wc && !wc.isDestroyed()) {
+        wc.send(channel, ...args)
+        return
+      }
+    } catch { /* ignore */ }
+  }
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send(channel, ...args)
+  }
+}
+
+function emitTerminalExit(sessionId: string, serverId: string): void {
+  sendToTerminalOwner(sessionId, 'terminal:exit', sessionId)
+  // Main window always learns about exits so connection UI stays in sync when popped out.
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    const mainId = mainWindow.webContents.id
+    const ownerId = terminalSessions.get(sessionId)?.ownerWebContentsId
+    if (ownerId !== mainId) {
+      mainWindow.webContents.send('terminal:exit', sessionId)
+    }
+  }
+  const pop = terminalPopouts.get(serverId)
+  if (pop && !pop.docking) {
+    // Session died under a pop-out — clear placeholder state in the main UI.
+    notifyMainPopoutState({ serverId, poppedOut: false, sessionId, ended: true })
+  }
+}
+
+function endTerminalSession(sessionId: string): void {
+  const sess = terminalSessions.get(sessionId)
+  if (!sess) return
+  try { if (sess.stream?.end) sess.stream.end() } catch { /* ignore */ }
+  try { if (sess.client?.end) sess.client.end() } catch { /* ignore */ }
+  terminalSessions.delete(sessionId)
+}
+
+function closeTerminalPopoutWindow(serverId: string, opts: { endSession: boolean }): void {
+  const pop = terminalPopouts.get(serverId)
+  if (!pop) {
+    if (opts.endSession) {
+      const entry = findTerminalSessionEntryForServer(serverId)
+      if (entry) endTerminalSession(entry.sessionId)
+    }
+    return
+  }
+  pop.docking = !opts.endSession
+  if (!pop.window.isDestroyed()) {
+    pop.window.close()
+  }
+}
+
+function createTerminalPopoutWindow(serverId: string, sessionId: string, title: string): BrowserWindow {
+  const settings = readJsonSync(SETTINGS_PATH, DEFAULT_SETTINGS)
+  const preference = normalizeTheme(settings?.theme)
+  syncNativeThemeSource(preference)
+  const theme = resolveThemePreference(preference)
+  const chrome = CHROME[theme]
+
+  const win = new BrowserWindow({
+    width: 900,
+    height: 600,
+    minWidth: 480,
+    minHeight: 320,
+    show: false,
+    autoHideMenuBar: true,
+    icon: resolveAppIcon(),
+    title: title || 'SSH Terminal',
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.cjs'),
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+    titleBarStyle: 'hidden',
+    titleBarOverlay: {
+      color: chrome.background,
+      symbolColor: chrome.symbol,
+      height: 48,
+    },
+    backgroundColor: chrome.background,
+  })
+
+  win.once('ready-to-show', () => {
+    if (!win.isDestroyed()) {
+      win.show()
+      win.focus()
+    }
+  })
+
+  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+
+  const query = {
+    popout: '1',
+    sessionId,
+    serverId,
+  }
+
+  if (isDev && process.env['ELECTRON_RENDERER_URL']) {
+    const qs = new URLSearchParams(query).toString()
+    win.loadURL(`${process.env['ELECTRON_RENDERER_URL']}?${qs}`)
+  } else {
+    win.loadFile(join(__dirname, '../renderer/index.html'), { query })
+  }
+
+  return win
 }
 
 function getConnectionTimeoutMs(server?: Server): number {
@@ -577,7 +729,7 @@ ipcMain.handle(
   }
 )
 
-ipcMain.handle("terminal:create", async (_, server: Server) => {
+ipcMain.handle("terminal:create", async (event, server: Server) => {
   const sessionId = generateSessionId()
   return new Promise<string>((resolve, reject) => {
     let connectConfig: Record<string, unknown>
@@ -589,7 +741,12 @@ ipcMain.handle("terminal:create", async (_, server: Server) => {
     }
 
     const client = new Client()
-    const session: TerminalSession = { client, stream: null, serverId: server.id }
+    const session: TerminalSession = {
+      client,
+      stream: null,
+      serverId: server.id,
+      ownerWebContentsId: event.sender.id,
+    }
     terminalSessions.set(sessionId, session)
 
     client.on("ready", () => {
@@ -603,17 +760,11 @@ ipcMain.handle("terminal:create", async (_, server: Server) => {
         session.stream = stream
 
         stream.on("data", (data: Buffer | string) => {
-          const mainWin = mainWindow
-          if (mainWin && !mainWin.isDestroyed()) {
-            mainWin.webContents.send("terminal:data", sessionId, data.toString())
-          }
+          sendToTerminalOwner(sessionId, "terminal:data", sessionId, data.toString())
         })
 
         stream.on("close", () => {
-          const mainWin = mainWindow
-          if (mainWin && !mainWin.isDestroyed()) {
-            mainWin.webContents.send("terminal:exit", sessionId)
-          }
+          emitTerminalExit(sessionId, server.id)
           try { client.end() } catch { /* ignore */ }
           terminalSessions.delete(sessionId)
         })
@@ -621,19 +772,13 @@ ipcMain.handle("terminal:create", async (_, server: Server) => {
         // Post-ready transport failures should also end the UI session.
         client.removeAllListeners("error")
         client.on("error", () => {
-          const mainWin = mainWindow
-          if (mainWin && !mainWin.isDestroyed()) {
-            mainWin.webContents.send("terminal:exit", sessionId)
-          }
+          emitTerminalExit(sessionId, server.id)
           try { client.end() } catch { /* ignore */ }
           terminalSessions.delete(sessionId)
         })
         client.on("close", () => {
           if (!terminalSessions.has(sessionId)) return
-          const mainWin = mainWindow
-          if (mainWin && !mainWin.isDestroyed()) {
-            mainWin.webContents.send("terminal:exit", sessionId)
-          }
+          emitTerminalExit(sessionId, server.id)
           terminalSessions.delete(sessionId)
         })
 
@@ -666,13 +811,125 @@ ipcMain.handle("terminal:resize", async (_, sessionId: string, cols: number, row
   return true
 })
 
-ipcMain.handle("terminal:close", async (_, sessionId: string) => {
+ipcMain.handle("terminal:close", async (event, sessionId: string) => {
   const sess = terminalSessions.get(sessionId)
-  if (sess) {
-    try { if (sess.stream && sess.stream.end) sess.stream.end() } catch { /* ignore */ }
-    try { if (sess.client && sess.client.end) sess.client.end() } catch { /* ignore */ }
-    terminalSessions.delete(sessionId)
+  if (!sess) return true
+  // Another window may own this session after a pop-out — don't tear it down from the old owner.
+  if (sess.ownerWebContentsId != null && sess.ownerWebContentsId !== event.sender.id) {
+    return true
   }
+  endTerminalSession(sessionId)
+  return true
+})
+
+ipcMain.handle("terminal:claim", async (event, sessionId: string) => {
+  const sess = terminalSessions.get(sessionId)
+  if (!sess || !sess.stream) return false
+  sess.ownerWebContentsId = event.sender.id
+  return true
+})
+
+ipcMain.handle("terminal:pop-out", async (_event, serverId: string) => {
+  if (!serverId || typeof serverId !== 'string') {
+    return { success: false as const, error: 'Invalid server id' }
+  }
+  if (terminalPopouts.has(serverId)) {
+    const existing = terminalPopouts.get(serverId)!
+    if (!existing.window.isDestroyed()) {
+      existing.window.focus()
+      return { success: true as const, sessionId: existing.sessionId, alreadyOpen: true }
+    }
+    terminalPopouts.delete(serverId)
+  }
+
+  const entry = findTerminalSessionEntryForServer(serverId)
+  if (!entry) {
+    return { success: false as const, error: 'No active terminal session' }
+  }
+
+  const servers = readServers()
+  const server = servers.find(s => s.id === serverId)
+  const title = server
+    ? `SSH — ${server.name}`
+    : 'SSH Terminal'
+
+  const win = createTerminalPopoutWindow(serverId, entry.sessionId, title)
+  terminalPopouts.set(serverId, {
+    window: win,
+    sessionId: entry.sessionId,
+    docking: false,
+  })
+
+  win.on('closed', () => {
+    const pop = terminalPopouts.get(serverId)
+    if (!pop || pop.window !== win) return
+    terminalPopouts.delete(serverId)
+
+    if (pop.docking) {
+      notifyMainPopoutState({
+        serverId,
+        poppedOut: false,
+        sessionId: pop.sessionId,
+        ended: false,
+      })
+      return
+    }
+
+    // Native close (or disconnect) ends the SSH session.
+    const stillOpen = terminalSessions.has(pop.sessionId)
+    if (stillOpen) {
+      endTerminalSession(pop.sessionId)
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('terminal:exit', pop.sessionId)
+      }
+    }
+    notifyMainPopoutState({
+      serverId,
+      poppedOut: false,
+      sessionId: pop.sessionId,
+      ended: true,
+    })
+  })
+
+  notifyMainPopoutState({
+    serverId,
+    poppedOut: true,
+    sessionId: entry.sessionId,
+  })
+
+  return { success: true as const, sessionId: entry.sessionId }
+})
+
+ipcMain.handle("terminal:dock", async (_event, serverId: string) => {
+  if (!serverId || typeof serverId !== 'string') {
+    return { success: false as const, error: 'Invalid server id' }
+  }
+  const pop = terminalPopouts.get(serverId)
+  if (!pop) {
+    return { success: false as const, error: 'Terminal is not popped out' }
+  }
+  const sessionId = pop.sessionId
+  pop.docking = true
+  if (!pop.window.isDestroyed()) {
+    pop.window.close()
+  } else {
+    terminalPopouts.delete(serverId)
+    notifyMainPopoutState({
+      serverId,
+      poppedOut: false,
+      sessionId,
+      ended: false,
+    })
+  }
+  return { success: true as const, sessionId }
+})
+
+ipcMain.handle("terminal:close-for-server", async (_event, serverId: string) => {
+  if (!serverId || typeof serverId !== 'string') return false
+  closeTerminalPopoutWindow(serverId, { endSession: true })
+  // If there was no pop-out, still end any in-main session for this server.
+  const entry = findTerminalSessionEntryForServer(serverId)
+  if (entry) endTerminalSession(entry.sessionId)
   return true
 })
 
@@ -895,6 +1152,12 @@ app.on('window-all-closed', () => {
 app.on('before-quit', () => {
   if (!gotTheLock) return
   endAllActiveAISessions()
+  for (const serverId of [...terminalPopouts.keys()]) {
+    closeTerminalPopoutWindow(serverId, { endSession: true })
+  }
+  for (const sessionId of [...terminalSessions.keys()]) {
+    endTerminalSession(sessionId)
+  }
   try {
     closeAllRemoteClients()
   } catch (e) {
