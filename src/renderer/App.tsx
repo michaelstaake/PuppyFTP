@@ -424,6 +424,16 @@ const App: FC = () => {
     if (window.electronAPI) await window.electronAPI.saveServers(newServers)
   }
 
+  const handleLocalPathChange = useCallback((serverId: string, path: string) => {
+    setServers(prev => {
+      const current = prev.find(s => s.id === serverId)
+      if (!current || current.lastLocalPath === path) return prev
+      const updated = prev.map(s => (s.id === serverId ? { ...s, lastLocalPath: path } : s))
+      void window.electronAPI?.saveServers(updated)
+      return updated
+    })
+  }, [])
+
   const updateCategories = async (newCategories: Category[]) => {
     setCategories(newCategories)
     if (window.electronAPI) await window.electronAPI.saveCategories(newCategories)
@@ -956,6 +966,7 @@ const App: FC = () => {
               onSessionFailed={markConnectionFailed}
               onSessionClosed={markConnectionLost}
               onSessionEnded={id => void disconnectServer(id)}
+              onLocalPathChange={handleLocalPathChange}
               aiEnabled={aiEnabled}
               aiChatOpen={aiChatOpen}
               onToggleAIChat={toggleAIChat}

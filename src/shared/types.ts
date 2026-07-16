@@ -133,6 +133,8 @@ export interface Server {
   stopBits?: SerialStopBits
   createdAt: number
   lastConnectedAt?: number
+  /** Last local explorer folder used for this server (file-transfer sessions). */
+  lastLocalPath?: string
   order: number
 }
 

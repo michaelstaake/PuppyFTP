@@ -41,6 +41,8 @@ interface MainAreaProps {
   onSessionClosed: (serverId: string) => void
   /** Intentional end (e.g. user closed the RDP window) — back to disconnected. */
   onSessionEnded: (serverId: string) => void
+  /** Persist last local explorer folder per server. */
+  onLocalPathChange?: (serverId: string, path: string) => void
 }
 
 const MainArea: React.FC<MainAreaProps> = ({
@@ -65,6 +67,7 @@ const MainArea: React.FC<MainAreaProps> = ({
   onSessionFailed,
   onSessionClosed,
   onSessionEnded,
+  onLocalPathChange,
 }) => {
   const explorerRef = React.useRef<DualPaneExplorerHandle>(null)
   const xtermRefs = React.useRef<Record<string, XTermHandle | null>>({})
@@ -412,6 +415,7 @@ const MainArea: React.FC<MainAreaProps> = ({
                   onStatusChange={isActive ? handleExplorerStatus : undefined}
                   onConnected={() => onSessionConnected(s.id)}
                   onConnectFailed={() => onSessionFailed(s.id)}
+                  onLocalPathChange={onLocalPathChange}
                 />
               )}
             </div>

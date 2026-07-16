@@ -11,6 +11,8 @@ interface DualPaneExplorerProps {
   onStatusChange?: (status: { loading: boolean; isExploring: boolean }) => void
   onConnected?: () => void
   onConnectFailed?: () => void
+  /** Persist last local folder for this server (survives app restart). */
+  onLocalPathChange?: (serverId: string, path: string) => void
 }
 
 export type DualPaneExplorerHandle = {
@@ -59,12 +61,14 @@ function joinName(dirPath: string, name: string, isLocal: boolean): string {
 }
 
 const DualPaneExplorer = forwardRef<DualPaneExplorerHandle, DualPaneExplorerProps>(function DualPaneExplorer(
-  { server, onStatusChange, onConnected, onConnectFailed },
+  { server, onStatusChange, onConnected, onConnectFailed, onLocalPathChange },
   ref
 ) {
-  const stored = useExplorerStore.getState().getPaths(server.id)
+  const stored = useExplorerStore.getState().getPaths(server.id, server.lastLocalPath)
   const setStoredLocal = useExplorerStore(s => s.setLocalPath)
   const setStoredRemote = useExplorerStore(s => s.setRemotePath)
+  const onLocalPathChangeRef = useRef(onLocalPathChange)
+  onLocalPathChangeRef.current = onLocalPathChange
 
   const [localPath, setLocalPath] = useState(stored.localPath)
   const [remotePath, setRemotePath] = useState(stored.remotePath)
@@ -236,7 +240,8 @@ const DualPaneExplorer = forwardRef<DualPaneExplorerHandle, DualPaneExplorerProp
   // Navigation
   const goLocal = async (newPath: string) => {
     setLocalPath(newPath)
-    setStoredLocal(newPath)
+    setStoredLocal(server.id, newPath)
+    onLocalPathChangeRef.current?.(server.id, newPath)
     setLocalSelected(new Set())
     localAnchorRef.current = null
     await refreshLocal(newPath)
