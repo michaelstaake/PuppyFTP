@@ -2,13 +2,41 @@ export type Protocol = 'ftp' | 'ftps' | 'ftps-implicit' | 'sftp' | 'ssh' | 'teln
 
 export type ConnectionType = 'terminal' | 'file' | 'desktop'
 
+/** Terminal transport: TCP (SSH/Telnet) vs local serial (COM) port. */
+export type ConnectionMethod = 'network' | 'serial'
+
+export type SerialDataBits = 5 | 6 | 7 | 8
+export type SerialParity = 'none' | 'even' | 'odd' | 'mark' | 'space'
+export type SerialStopBits = 1 | 1.5 | 2
+
 export type AuthMethod = 'password' | 'privateKey'
 
 /** UI / AI connection lifecycle for a server session. */
 export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'lost' | 'failed'
 
+export const DEFAULT_SERIAL_BAUD_RATE = 9600
+export const DEFAULT_SERIAL_DATA_BITS: SerialDataBits = 8
+export const DEFAULT_SERIAL_PARITY: SerialParity = 'none'
+export const DEFAULT_SERIAL_STOP_BITS: SerialStopBits = 1
+
 export function isTerminalProtocol(p: Protocol): boolean {
   return p === 'ssh' || p === 'telnet'
+}
+
+export function effectiveConnectionMethod(
+  server: Pick<Server, 'connectionMethod'>
+): ConnectionMethod {
+  return server.connectionMethod === 'serial' ? 'serial' : 'network'
+}
+
+export function isSerialConnection(server: Pick<Server, 'connectionMethod'>): boolean {
+  return effectiveConnectionMethod(server) === 'serial'
+}
+
+export interface SerialPortInfo {
+  path: string
+  friendlyName?: string
+  manufacturer?: string
 }
 
 export function defaultPortForProtocol(protocol: Protocol): number {
@@ -88,6 +116,21 @@ export interface Server {
   readyTimeout?: number
   /** User-provided OS hint for Ask AI (e.g. "Ubuntu 24.04"). */
   lastKnownOs?: string
+  /**
+   * Terminal only. Missing / unknown ⇒ network (SSH/Telnet over TCP).
+   * Serial uses a local COM port instead of host/port.
+   */
+  connectionMethod?: ConnectionMethod
+  /** Serial COM path (e.g. COM3). Used when connectionMethod is serial. */
+  serialPort?: string
+  /** Serial baud rate. Default 9600 when opening. */
+  baudRate?: number
+  /** Serial data bits. Default 8. */
+  dataBits?: SerialDataBits
+  /** Serial parity. Default none. */
+  parity?: SerialParity
+  /** Serial stop bits. Default 1. */
+  stopBits?: SerialStopBits
   createdAt: number
   lastConnectedAt?: number
   order: number

@@ -13,6 +13,7 @@ import {
   RemoteCacheEntry,
   ExploreProgressEvent,
   AICommandApprovalRequest,
+  SerialPortInfo,
 } from '../shared/types'
 import type { ElectronAPI } from '../shared/electron-api'
 
@@ -51,6 +52,7 @@ const api: ElectronAPI = {
     ipcRenderer.invoke('window:capture-rect-to-clipboard', rect),
 
   // Terminal (Phase 2)
+  listSerialPorts: (): Promise<SerialPortInfo[]> => ipcRenderer.invoke('serial:list-ports'),
   createTerminal: (server: Server): Promise<string> => ipcRenderer.invoke('terminal:create', server),
   sendTerminalData: (sessionId: string, data: string): Promise<void> => ipcRenderer.invoke('terminal:input', sessionId, data),
   resizeTerminal: (sessionId: string, cols: number, rows: number): Promise<void> => ipcRenderer.invoke('terminal:resize', sessionId, cols, rows),

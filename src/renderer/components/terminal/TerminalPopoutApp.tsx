@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react'
-import { Server, protocolLabel } from '@shared/types'
+import { Server, isSerialConnection, protocolLabel } from '@shared/types'
 import { applyResolvedTheme, normalizeThemePreference, resolveTheme } from '../../lib/theme'
 import XTerm, { XTermHandle } from './XTerm'
 import TerminalActionsMenu, { TerminalMenuAnchor } from './TerminalActionsMenu'
@@ -36,7 +36,9 @@ const TerminalPopoutApp: React.FC<TerminalPopoutAppProps> = ({ serverId, session
           return
         }
         setServer(match)
-        document.title = `${protocolLabel(match.protocol)} — ${match.name}`
+        document.title = isSerialConnection(match)
+          ? `Serial — ${match.name}`
+          : `${protocolLabel(match.protocol)} — ${match.name}`
       } catch (e) {
         if (!cancelled) setError(String(e))
       }
@@ -103,11 +105,13 @@ const TerminalPopoutApp: React.FC<TerminalPopoutAppProps> = ({ serverId, session
           className="font-mono text-xs bg-muted px-2 py-0.5 rounded"
           style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
         >
-          {protocolLabel(server.protocol)}
+          {isSerialConnection(server) ? 'Serial' : protocolLabel(server.protocol)}
         </span>
         <span className="font-medium truncate">{server.name}</span>
         <span className="text-muted-foreground text-xs truncate">
-          — {server.username}@{server.host}:{server.port}
+          {isSerialConnection(server)
+            ? `— ${server.serialPort || 'COM?'}${server.baudRate ? ` @ ${server.baudRate}` : ''}`
+            : `— ${server.username}@${server.host}:${server.port}`}
         </span>
       </div>
 

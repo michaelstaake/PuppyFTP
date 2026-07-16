@@ -2,13 +2,14 @@ import { app, BrowserWindow, ipcMain, dialog, shell, nativeTheme, Tray, Menu, gl
 import { join } from 'path'
 import { readFileSync, writeFileSync, mkdirSync } from 'fs'
 import { Client } from 'ssh2'
-import { Server, Category, AppSettings, ResolvedTheme, ThemePreference, AISessionsStore, TransferHistoryStore, DEFAULT_CONNECTION_TIMEOUT, normalizeConnectionTimeout, DEFAULT_CATEGORIES, protocolLabel } from '../shared/types'
+import { Server, Category, AppSettings, ResolvedTheme, ThemePreference, AISessionsStore, TransferHistoryStore, DEFAULT_CONNECTION_TIMEOUT, normalizeConnectionTimeout, DEFAULT_CATEGORIES, protocolLabel, isSerialConnection, DEFAULT_SERIAL_BAUD_RATE } from '../shared/types'
 import { registerFsHandlers, closeAllRemoteClients, close as closeRemoteCache } from './fs-handlers'
 import { registerRdpHandlers, closeAllRdpSessions } from './rdp-handlers'
 import { getSummaryEntries } from './services/remote-cache'
 import { configureServersStore, readServers, writeServers, updateServerFields } from './services/servers-store'
 import { createHostKeyVerifier } from './services/host-key'
 import { TelnetSession } from './services/telnet-session'
+import { SerialSession, listSerialPorts } from './services/serial-session'
 import {
   askAI,
   buildTreeSummaryFromRows,
@@ -468,14 +469,16 @@ ipcMain.handle(
   }
 )
 
-// --- Phase 2: SSH / Telnet Terminal support ---
+// --- Phase 2: SSH / Telnet / Serial Terminal support ---
 interface TerminalSession {
-  /** SSH client (ssh2); null for Telnet. */
+  /** SSH client (ssh2); null for Telnet/Serial. */
   client: any // eslint-disable-line @typescript-eslint/no-explicit-any
-  /** SSH shell stream; null for Telnet. */
+  /** SSH shell stream; null for Telnet/Serial. */
   stream: any // eslint-disable-line @typescript-eslint/no-explicit-any
-  /** Telnet session; null for SSH. */
+  /** Telnet session; null for SSH/Serial. */
   telnet: TelnetSession | null
+  /** Serial session; null for SSH/Telnet. */
+  serial: SerialSession | null
   serverId: string
   ownerWebContentsId: number | null
 }
@@ -499,7 +502,7 @@ function findTerminalSessionEntryForServer(
   serverId: string
 ): { sessionId: string; session: TerminalSession } | undefined {
   for (const [sessionId, sess] of terminalSessions) {
-    if (sess.serverId === serverId && (sess.client || sess.telnet)) {
+    if (sess.serverId === serverId && (sess.client || sess.telnet || sess.serial)) {
       return { sessionId, session: sess }
     }
   }
@@ -602,6 +605,7 @@ function endTerminalSession(sessionId: string): void {
   try { if (sess.stream?.end) sess.stream.end() } catch { /* ignore */ }
   try { if (sess.client?.end) sess.client.end() } catch { /* ignore */ }
   try { if (sess.telnet) sess.telnet.end() } catch { /* ignore */ }
+  try { if (sess.serial) sess.serial.end() } catch { /* ignore */ }
   terminalSessions.delete(sessionId)
   terminalScrollbacks.delete(sessionId)
 }
@@ -821,8 +825,62 @@ ipcMain.handle(
   }
 )
 
+ipcMain.handle("serial:list-ports", async () => {
+  return listSerialPorts()
+})
+
 ipcMain.handle("terminal:create", async (event, server: Server) => {
   const sessionId = generateSessionId()
+
+  if (isSerialConnection(server)) {
+    const path = server.serialPort?.trim()
+    if (!path) {
+      throw new Error('Serial port is required')
+    }
+    const serial = new SerialSession({
+      path,
+      baudRate: server.baudRate || DEFAULT_SERIAL_BAUD_RATE,
+      dataBits: server.dataBits,
+      parity: server.parity,
+      stopBits: server.stopBits,
+    })
+    const session: TerminalSession = {
+      client: null,
+      stream: null,
+      telnet: null,
+      serial,
+      serverId: server.id,
+      ownerWebContentsId: event.sender.id,
+    }
+    terminalSessions.set(sessionId, session)
+
+    serial.on('data', (text: string) => {
+      appendTerminalScrollback(sessionId, text)
+      sendToTerminalOwner(sessionId, 'terminal:data', sessionId, text)
+    })
+
+    serial.on('close', () => {
+      if (!terminalSessions.has(sessionId)) return
+      emitTerminalExit(sessionId, server.id)
+      terminalSessions.delete(sessionId)
+    })
+
+    serial.on('error', () => {
+      if (!terminalSessions.has(sessionId)) return
+      emitTerminalExit(sessionId, server.id)
+      try { serial.end() } catch { /* ignore */ }
+      terminalSessions.delete(sessionId)
+    })
+
+    try {
+      await serial.connect()
+      return sessionId
+    } catch (err) {
+      terminalSessions.delete(sessionId)
+      try { serial.end() } catch { /* ignore */ }
+      throw err
+    }
+  }
 
   if (server.protocol === 'telnet') {
     const telnet = new TelnetSession({
@@ -835,6 +893,7 @@ ipcMain.handle("terminal:create", async (event, server: Server) => {
       client: null,
       stream: null,
       telnet,
+      serial: null,
       serverId: server.id,
       ownerWebContentsId: event.sender.id,
     }
@@ -886,6 +945,7 @@ ipcMain.handle("terminal:create", async (event, server: Server) => {
       client,
       stream: null,
       telnet: null,
+      serial: null,
       serverId: server.id,
       ownerWebContentsId: event.sender.id,
     }
@@ -943,7 +1003,9 @@ ipcMain.handle("terminal:create", async (event, server: Server) => {
 ipcMain.handle("terminal:input", async (_, sessionId: string, data: string) => {
   const sess = terminalSessions.get(sessionId)
   if (!sess) return true
-  if (sess.telnet) {
+  if (sess.serial) {
+    sess.serial.write(data)
+  } else if (sess.telnet) {
     sess.telnet.write(data)
   } else if (sess.stream) {
     sess.stream.write(data)
@@ -954,7 +1016,9 @@ ipcMain.handle("terminal:input", async (_, sessionId: string, data: string) => {
 ipcMain.handle("terminal:resize", async (_, sessionId: string, cols: number, rows: number) => {
   const sess = terminalSessions.get(sessionId)
   if (!sess) return true
-  if (sess.telnet) {
+  if (sess.serial) {
+    try { sess.serial.resize(cols, rows) } catch { /* ignore */ }
+  } else if (sess.telnet) {
     try { sess.telnet.resize(cols, rows) } catch { /* ignore */ }
   } else if (sess.stream) {
     try { sess.stream.setWindow(rows, cols, 0, 0) } catch { /* ignore */ }
@@ -975,7 +1039,7 @@ ipcMain.handle("terminal:close", async (event, sessionId: string) => {
 
 ipcMain.handle("terminal:claim", async (event, sessionId: string) => {
   const sess = terminalSessions.get(sessionId)
-  if (!sess || (!sess.stream && !sess.telnet)) return { success: false as const, scrollback: '' }
+  if (!sess || (!sess.stream && !sess.telnet && !sess.serial)) return { success: false as const, scrollback: '' }
   sess.ownerWebContentsId = event.sender.id
   const scrollback = takeTerminalScrollback(sessionId)
   return { success: true as const, scrollback }
@@ -1015,7 +1079,9 @@ ipcMain.handle("terminal:pop-out", async (_event, serverId: string, scrollback?:
   const servers = readServers()
   const server = servers.find(s => s.id === serverId)
   const title = server
-    ? `${protocolLabel(server.protocol)} — ${server.name}`
+    ? isSerialConnection(server)
+      ? `Serial — ${server.name}`
+      : `${protocolLabel(server.protocol)} — ${server.name}`
     : 'Terminal'
 
   const win = createTerminalPopoutWindow(serverId, entry.sessionId, title)

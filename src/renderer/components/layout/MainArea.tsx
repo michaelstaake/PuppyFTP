@@ -1,5 +1,5 @@
 import React from 'react'
-import { Server, isTerminalProtocol, protocolLabel } from '@shared/types'
+import { Server, isSerialConnection, isTerminalProtocol, protocolLabel } from '@shared/types'
 import {
   MessageCircle,
   RefreshCw,
@@ -165,11 +165,13 @@ const MainArea: React.FC<MainAreaProps> = ({
       <div className="h-12 border-b border-border px-4 flex items-center justify-between bg-surface-elevated shrink-0">
         <div className="flex items-center gap-3">
           <span className="font-mono text-xs bg-muted px-2 py-0.5 rounded">
-            {protocolLabel(server.protocol)}
+            {isSerialConnection(server) ? 'Serial' : protocolLabel(server.protocol)}
           </span>
           <span className="font-medium">{server.name}</span>
           <span className="text-muted-foreground text-xs">
-            — {server.username}@{server.host}:{server.port}
+            {isSerialConnection(server)
+              ? `— ${server.serialPort || 'COM?'}${server.baudRate ? ` @ ${server.baudRate}` : ''}`
+              : `— ${server.username}@${server.host}:${server.port}`}
           </span>
         </div>
 

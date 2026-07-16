@@ -20,8 +20,12 @@ function run(cmd, args, cwd = root) {
   }
 }
 
-// Rebuild better-sqlite3 for Electron (skip broken optional cpu-features).
-run('npx', ['@electron/rebuild', '-f', '--only', 'better-sqlite3', '-v', electronVersion], root)
+// Rebuild native modules for Electron (skip broken optional cpu-features).
+run(
+  'npx',
+  ['@electron/rebuild', '-f', '--only', 'better-sqlite3,serialport,@serialport/bindings-cpp', '-v', electronVersion],
+  root
+)
 
 if (process.platform === 'win32') {
   run(

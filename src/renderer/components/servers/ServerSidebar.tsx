@@ -2,12 +2,22 @@ import React, { useEffect, useRef, useState } from 'react'
 import {
   AuthKey,
   AuthMethod,
+  ConnectionMethod,
   ConnectionType,
   Protocol,
   Server,
   Category,
+  SerialDataBits,
+  SerialParity,
+  SerialPortInfo,
+  SerialStopBits,
   UNCATEGORIZED_ID,
+  DEFAULT_SERIAL_BAUD_RATE,
+  DEFAULT_SERIAL_DATA_BITS,
+  DEFAULT_SERIAL_PARITY,
+  DEFAULT_SERIAL_STOP_BITS,
   defaultPortForProtocol,
+  isSerialConnection,
   isTerminalProtocol,
   protocolLabel,
 } from '@shared/types'
@@ -52,8 +62,11 @@ const TERMINAL_PROTOCOLS: { value: Protocol; label: string }[] = [
   { value: 'telnet', label: 'Telnet (insecure)' },
 ]
 
+const BAUD_PRESETS = [9600, 19200, 38400, 57600, 115200]
+
 const emptyForm = {
   connectionType: '' as ConnectionType | '',
+  connectionMethod: 'network' as ConnectionMethod,
   name: '',
   protocol: 'sftp' as Protocol,
   host: '',
@@ -67,10 +80,20 @@ const emptyForm = {
   keyId: '',
   lastKnownOs: '',
   allowInvalidCertificate: false,
+  serialPort: '',
+  baudRate: DEFAULT_SERIAL_BAUD_RATE as number | '',
+  dataBits: DEFAULT_SERIAL_DATA_BITS as SerialDataBits,
+  parity: DEFAULT_SERIAL_PARITY as SerialParity,
+  stopBits: DEFAULT_SERIAL_STOP_BITS as SerialStopBits,
+  showSerialAdvanced: false,
 }
 
 function resolveFormPort(port: number | '', protocol: Protocol): number {
   return typeof port === 'number' && port > 0 ? port : defaultPortForProtocol(protocol)
+}
+
+function resolveFormBaud(baud: number | ''): number {
+  return typeof baud === 'number' && baud > 0 ? baud : DEFAULT_SERIAL_BAUD_RATE
 }
 
 function formFromServer(server: Server) {
@@ -79,8 +102,10 @@ function formFromServer(server: Server) {
     : server.protocol === 'rdp'
       ? 'desktop'
       : 'file'
+  const connectionMethod: ConnectionMethod = isSerialConnection(server) ? 'serial' : 'network'
   return {
     connectionType,
+    connectionMethod,
     name: server.name,
     protocol: server.protocol,
     host: server.host,
@@ -93,7 +118,20 @@ function formFromServer(server: Server) {
     keyId: server.keyId || '',
     lastKnownOs: server.lastKnownOs || '',
     allowInvalidCertificate: server.allowInvalidCertificate === true,
+    serialPort: server.serialPort || '',
+    baudRate: server.baudRate ?? DEFAULT_SERIAL_BAUD_RATE,
+    dataBits: server.dataBits ?? DEFAULT_SERIAL_DATA_BITS,
+    parity: server.parity ?? DEFAULT_SERIAL_PARITY,
+    stopBits: server.stopBits ?? DEFAULT_SERIAL_STOP_BITS,
+    showSerialAdvanced: false,
   }
+}
+
+function serverEndpointLabel(server: Server): string {
+  if (isSerialConnection(server)) {
+    return `Serial · ${server.serialPort || 'COM?'}`
+  }
+  return `${protocolLabel(server.protocol)} · ${server.host}`
 }
 
 type CategoryMenuState = { categoryId: string; x: number; y: number } | null
@@ -131,6 +169,8 @@ const ServerSidebar: React.FC<ServerSidebarProps> = ({
   const [serverMenu, setServerMenu] = useState<ServerMenuState>(null)
   const [categoryModal, setCategoryModal] = useState<CategoryModal>(null)
   const [categoryNameDraft, setCategoryNameDraft] = useState('')
+  const [serialPorts, setSerialPorts] = useState<SerialPortInfo[]>([])
+  const [serialPortsLoading, setSerialPortsLoading] = useState(false)
   const categoryMenuRef = useRef<HTMLDivElement>(null)
   const serverMenuRef = useRef<HTMLDivElement>(null)
   // Only dismiss when press started on the backdrop — avoids closing when
@@ -201,6 +241,36 @@ const ServerSidebar: React.FC<ServerSidebarProps> = ({
     if (!showAddModal) resetForm()
   }, [showAddModal])
 
+  useEffect(() => {
+    if (!showAddModal || newServer.connectionType !== 'terminal' || newServer.connectionMethod !== 'serial') {
+      return
+    }
+    let cancelled = false
+    setSerialPortsLoading(true)
+    void window.electronAPI
+      ?.listSerialPorts?.()
+      .then(ports => {
+        if (cancelled) return
+        setSerialPorts(ports)
+        setNewServer(s => {
+          if (s.serialPort && ports.some(p => p.path === s.serialPort)) return s
+          if (ports.length === 1 && !s.serialPort) {
+            return { ...s, serialPort: ports[0]!.path }
+          }
+          return s
+        })
+      })
+      .catch(() => {
+        if (!cancelled) setSerialPorts([])
+      })
+      .finally(() => {
+        if (!cancelled) setSerialPortsLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [showAddModal, newServer.connectionType, newServer.connectionMethod])
+
   const openAddServer = () => {
     resetForm()
     setShowAddModal(true)
@@ -221,6 +291,7 @@ const ServerSidebar: React.FC<ServerSidebarProps> = ({
       return {
         ...s,
         connectionType,
+        connectionMethod: connectionType === 'terminal' ? s.connectionMethod : 'network',
         protocol,
         port: keepCustom ? s.port : defaultPortForProtocol(protocol),
         authMethod:
@@ -234,6 +305,16 @@ const ServerSidebar: React.FC<ServerSidebarProps> = ({
         domain: connectionType === 'desktop' ? s.domain : '',
       }
     })
+  }
+
+  const setConnectionMethod = (connectionMethod: ConnectionMethod) => {
+    setNewServer(s => ({
+      ...s,
+      connectionMethod,
+      password: connectionMethod === 'serial' ? '' : s.password,
+      keyId: connectionMethod === 'serial' ? '' : s.keyId,
+      authMethod: connectionMethod === 'serial' ? 'password' : s.authMethod,
+    }))
   }
 
   const setProtocol = (protocol: Protocol) => {
@@ -254,22 +335,54 @@ const ServerSidebar: React.FC<ServerSidebarProps> = ({
 
   const handleSaveServer = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!newServer.connectionType || !newServer.name || !newServer.host) return
-    if (newServer.authMethod === 'privateKey' && !newServer.keyId) return
+    if (!newServer.connectionType || !newServer.name) return
+    const isSerial =
+      newServer.connectionType === 'terminal' && newServer.connectionMethod === 'serial'
+    if (isSerial) {
+      if (!newServer.serialPort) return
+    } else if (!newServer.host) {
+      return
+    }
+    if (!isSerial && newServer.authMethod === 'privateKey' && !newServer.keyId) return
 
     const selectedKey = authKeys.find(k => k.id === newServer.keyId)
     const osSuggestion = newServer.lastKnownOs.trim() || undefined
 
     const isTelnet = newServer.protocol === 'telnet'
-    const authMethod = isTelnet ? 'password' : newServer.authMethod
-    const password = isTelnet
+    const skipAuth = isTelnet || isSerial
+    const authMethod = skipAuth ? 'password' : newServer.authMethod
+    const password = skipAuth
       ? undefined
       : authMethod === 'password'
         ? newServer.password || (editingServerId ? servers.find(s => s.id === editingServerId)?.password : undefined)
         : undefined
-    const keyId = !isTelnet && authMethod === 'privateKey' ? newServer.keyId || undefined : undefined
+    const keyId = !skipAuth && authMethod === 'privateKey' ? newServer.keyId || undefined : undefined
     const privateKeyPath = keyId ? selectedKey?.privateKeyPath : undefined
     const passphrase = keyId ? selectedKey?.passphrase : undefined
+
+    const serialFields = isSerial
+      ? {
+          connectionMethod: 'serial' as const,
+          serialPort: newServer.serialPort,
+          baudRate: resolveFormBaud(newServer.baudRate),
+          dataBits: newServer.dataBits,
+          parity: newServer.parity,
+          stopBits: newServer.stopBits,
+          host: newServer.host || newServer.serialPort,
+          port: resolveFormPort(newServer.port, newServer.protocol),
+          username: '',
+        }
+      : {
+          connectionMethod: 'network' as const,
+          serialPort: undefined,
+          baudRate: undefined,
+          dataBits: undefined,
+          parity: undefined,
+          stopBits: undefined,
+          host: newServer.host,
+          port: resolveFormPort(newServer.port, newServer.protocol),
+          username: newServer.username,
+        }
 
     if (editingServerId) {
       const existing = servers.find(s => s.id === editingServerId)
@@ -281,13 +394,11 @@ const ServerSidebar: React.FC<ServerSidebarProps> = ({
                 ...s,
                 name: newServer.name,
                 protocol: newServer.protocol,
-                host: newServer.host,
-                port: resolveFormPort(newServer.port, newServer.protocol),
-                username: newServer.username,
+                ...serialFields,
                 domain: newServer.protocol === 'rdp' ? newServer.domain || undefined : undefined,
                 categoryId: hasCustomCategories ? newServer.categoryId : s.categoryId,
                 authMethod,
-                password: isTelnet
+                password: skipAuth
                   ? undefined
                   : authMethod === 'password'
                     ? newServer.password || s.password
@@ -305,9 +416,7 @@ const ServerSidebar: React.FC<ServerSidebarProps> = ({
       await onAddServer({
         name: newServer.name,
         protocol: newServer.protocol,
-        host: newServer.host,
-        port: resolveFormPort(newServer.port, newServer.protocol),
-        username: newServer.username,
+        ...serialFields,
         domain: newServer.protocol === 'rdp' ? newServer.domain || undefined : undefined,
         categoryId: hasCustomCategories ? newServer.categoryId : UNCATEGORIZED_ID,
         authMethod,
@@ -475,11 +584,13 @@ const ServerSidebar: React.FC<ServerSidebarProps> = ({
 
   const supportsKeyAuth = newServer.protocol === 'ssh' || newServer.protocol === 'sftp'
   const isTelnetProtocol = newServer.protocol === 'telnet'
-  const needsKey = supportsKeyAuth && newServer.authMethod === 'privateKey'
+  const isSerialMethod =
+    newServer.connectionType === 'terminal' && newServer.connectionMethod === 'serial'
+  const needsKey = !isSerialMethod && supportsKeyAuth && newServer.authMethod === 'privateKey'
   const canSubmit =
     !!newServer.connectionType &&
     !!newServer.name &&
-    !!newServer.host &&
+    (isSerialMethod ? !!newServer.serialPort : !!newServer.host) &&
     (!needsKey || !!newServer.keyId)
 
   const categoryTooltip = (cat: Category) => {
@@ -582,7 +693,7 @@ const ServerSidebar: React.FC<ServerSidebarProps> = ({
                     <div className="flex-1 min-w-0">
                       <div className="font-medium truncate">{server.name}</div>
                       <div className="text-[10px] text-muted-foreground truncate">
-                        {protocolLabel(server.protocol)} · {server.host}
+                        {serverEndpointLabel(server)}
                       </div>
                     </div>
                     {connectionByServerId[server.id] === 'connecting' && (
@@ -934,6 +1045,197 @@ const ServerSidebar: React.FC<ServerSidebarProps> = ({
                     onChange={e => setNewServer(s => ({ ...s, name: e.target.value }))}
                     required
                   />
+
+                  {newServer.connectionType === 'terminal' && (
+                    <div>
+                      <label className="text-xs text-muted-foreground mb-1.5 block">
+                        Connection method
+                      </label>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setConnectionMethod('network')}
+                          className={`py-1.5 rounded border text-sm ${
+                            newServer.connectionMethod === 'network'
+                              ? 'border-accent bg-accent/10 text-accent'
+                              : 'border-border text-muted-foreground'
+                          }`}
+                        >
+                          Network
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setConnectionMethod('serial')}
+                          className={`py-1.5 rounded border text-sm ${
+                            newServer.connectionMethod === 'serial'
+                              ? 'border-accent bg-accent/10 text-accent'
+                              : 'border-border text-muted-foreground'
+                          }`}
+                        >
+                          Serial
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {isSerialMethod ? (
+                    <>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="col-span-2">
+                          <label className="text-xs text-muted-foreground mb-1.5 block">
+                            COM port
+                          </label>
+                          <select
+                            className="w-full bg-background border border-border rounded px-3 py-1.5 text-sm"
+                            value={newServer.serialPort}
+                            onChange={e =>
+                              setNewServer(s => ({ ...s, serialPort: e.target.value }))
+                            }
+                            required
+                          >
+                            <option value="">
+                              {serialPortsLoading
+                                ? 'Scanning ports…'
+                                : serialPorts.length === 0
+                                  ? 'No serial ports found'
+                                  : 'Select a port…'}
+                            </option>
+                            {newServer.serialPort &&
+                              !serialPorts.some(p => p.path === newServer.serialPort) && (
+                                <option value={newServer.serialPort}>
+                                  {newServer.serialPort} (not currently present)
+                                </option>
+                              )}
+                            {serialPorts.map(p => (
+                              <option key={p.path} value={p.path}>
+                                {p.friendlyName
+                                  ? `${p.path} — ${p.friendlyName}`
+                                  : p.path}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="col-span-2">
+                          <label className="text-xs text-muted-foreground mb-1.5 block">
+                            Baud rate
+                          </label>
+                          <input
+                            type="number"
+                            list="baud-presets"
+                            className="w-full bg-background border border-border rounded px-3 py-1.5 text-sm"
+                            value={newServer.baudRate}
+                            placeholder={String(DEFAULT_SERIAL_BAUD_RATE)}
+                            onChange={e => {
+                              const raw = e.target.value
+                              if (raw === '') {
+                                setNewServer(s => ({ ...s, baudRate: '' }))
+                                return
+                              }
+                              const parsed = parseInt(raw, 10)
+                              if (Number.isFinite(parsed)) {
+                                setNewServer(s => ({ ...s, baudRate: parsed }))
+                              }
+                            }}
+                          />
+                          <datalist id="baud-presets">
+                            {BAUD_PRESETS.map(b => (
+                              <option key={b} value={b} />
+                            ))}
+                          </datalist>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
+                        onClick={() =>
+                          setNewServer(s => ({
+                            ...s,
+                            showSerialAdvanced: !s.showSerialAdvanced,
+                          }))
+                        }
+                      >
+                        {newServer.showSerialAdvanced ? (
+                          <ChevronDown className="h-3 w-3" />
+                        ) : (
+                          <ChevronRight className="h-3 w-3" />
+                        )}
+                        Advanced
+                      </button>
+                      {newServer.showSerialAdvanced && (
+                        <div className="grid grid-cols-3 gap-2">
+                          <div>
+                            <label className="text-[11px] text-muted-foreground mb-1 block">
+                              Data bits
+                            </label>
+                            <select
+                              className="w-full bg-background border border-border rounded px-2 py-1.5 text-sm"
+                              value={newServer.dataBits}
+                              onChange={e =>
+                                setNewServer(s => ({
+                                  ...s,
+                                  dataBits: Number(e.target.value) as SerialDataBits,
+                                }))
+                              }
+                            >
+                              {[5, 6, 7, 8].map(n => (
+                                <option key={n} value={n}>
+                                  {n}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="text-[11px] text-muted-foreground mb-1 block">
+                              Parity
+                            </label>
+                            <select
+                              className="w-full bg-background border border-border rounded px-2 py-1.5 text-sm"
+                              value={newServer.parity}
+                              onChange={e =>
+                                setNewServer(s => ({
+                                  ...s,
+                                  parity: e.target.value as SerialParity,
+                                }))
+                              }
+                            >
+                              <option value="none">None</option>
+                              <option value="even">Even</option>
+                              <option value="odd">Odd</option>
+                              <option value="mark">Mark</option>
+                              <option value="space">Space</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="text-[11px] text-muted-foreground mb-1 block">
+                              Stop bits
+                            </label>
+                            <select
+                              className="w-full bg-background border border-border rounded px-2 py-1.5 text-sm"
+                              value={String(newServer.stopBits)}
+                              onChange={e =>
+                                setNewServer(s => ({
+                                  ...s,
+                                  stopBits: Number(e.target.value) as SerialStopBits,
+                                }))
+                              }
+                            >
+                              <option value="1">1</option>
+                              <option value="1.5">1.5</option>
+                              <option value="2">2</option>
+                            </select>
+                          </div>
+                        </div>
+                      )}
+                      <input
+                        className="w-full bg-background border border-border rounded px-3 py-1.5 text-sm"
+                        placeholder="OS, like Ubuntu 26.04"
+                        value={newServer.lastKnownOs}
+                        onChange={e => setNewServer(s => ({ ...s, lastKnownOs: e.target.value }))}
+                        aria-label="OS Suggestion"
+                      />
+                    </>
+                  ) : (
+                    <>
                   <div className="grid grid-cols-2 gap-3">
                     {newServer.connectionType === 'terminal' ? (
                       <select
@@ -1033,6 +1335,8 @@ const ServerSidebar: React.FC<ServerSidebarProps> = ({
                       </span>
                     </label>
                   )}
+                    </>
+                  )}
 
                   {hasCustomCategories && (
                     <div>
@@ -1053,7 +1357,7 @@ const ServerSidebar: React.FC<ServerSidebarProps> = ({
                     </div>
                   )}
 
-                  {!isTelnetProtocol && (
+                  {!isTelnetProtocol && !isSerialMethod && (
                   <div>
                     <label className="text-xs text-muted-foreground mb-1.5 block">
                       Authentication
