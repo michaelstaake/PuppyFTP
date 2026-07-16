@@ -92,6 +92,8 @@ const App: FC = () => {
   const aiSessionsRef = useRef<AISession[]>([])
   const persistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const viewingSessionIdRef = useRef<string | null>(null)
+  /** Bumps on new chat / cancel so in-flight askAI cannot leave streaming stuck. */
+  const aiAskGenRef = useRef(0)
   const toastIdRef = useRef(0)
 
   const showToast = (message: string, type: "success" | "error" | "info" = "info") => {
@@ -150,17 +152,21 @@ const App: FC = () => {
     }, 200)
   }, [])
 
-  const replaceSessions = useCallback(
-    (updater: (prev: AISession[]) => AISession[]) => {
-      setAiSessions(prev => {
-        const next = updater(prev)
-        aiSessionsRef.current = next
-        persistSessions(next)
-        return next
-      })
-    },
-    [persistSessions]
-  )
+  const aiSessionsHydratedRef = useRef(false)
+
+  const replaceSessions = useCallback((updater: (prev: AISession[]) => AISession[]) => {
+    // Ref is source of truth for sync readers (ensureActiveSession / new chat).
+    // Avoid side effects inside setState updaters — Strict Mode may double-invoke them.
+    const next = updater(aiSessionsRef.current)
+    aiSessionsRef.current = next
+    setAiSessions(next)
+  }, [])
+
+  // Persist after hydration only — never write the initial empty [] over disk.
+  useEffect(() => {
+    if (!aiSessionsHydratedRef.current) return
+    persistSessions(aiSessions)
+  }, [aiSessions, persistSessions])
 
   const updateSessionById = useCallback(
     (sessionId: string, patch: (session: AISession) => AISession) => {
@@ -241,6 +247,7 @@ const App: FC = () => {
   }
 
   useEffect(() => {
+    let cancelled = false
     const loadData = async () => {
       try {
         if (window.electronAPI) {
@@ -251,6 +258,7 @@ const App: FC = () => {
             window.electronAPI.getAISessions?.() ?? Promise.resolve({ sessions: [] }),
             window.electronAPI.getTransferHistory?.() ?? Promise.resolve({ transfers: [] }),
           ])
+          if (cancelled) return
           setServers(s || [])
           setCategories(c?.length ? c : DEFAULT_CATEGORIES)
           const next: AppSettings = {
@@ -263,25 +271,37 @@ const App: FC = () => {
             keys: settings?.keys || [],
           }
           setAppSettings(next)
-          setAiSessions(sessionStore?.sessions || [])
+          const sessions = sessionStore?.sessions || []
+          aiSessionsRef.current = sessions
+          aiSessionsHydratedRef.current = true
+          setAiSessions(sessions)
           hydrateTransfers(transferStore || { transfers: [] })
           applyResolvedTheme(await resolveTheme(next.theme))
         } else {
+          if (cancelled) return
           setServers([])
           setCategories([...DEFAULT_CATEGORIES])
           setAppSettings(defaultSettings)
+          aiSessionsRef.current = []
+          aiSessionsHydratedRef.current = true
+          setAiSessions([])
           hydrateTransfers({ transfers: [] })
           applyResolvedTheme(await resolveTheme(defaultSettings.theme))
         }
       } catch (e) {
+        if (cancelled) return
         console.error('load failed', e)
         setAppSettings(defaultSettings)
+        aiSessionsHydratedRef.current = true
         applyResolvedTheme(await resolveTheme(defaultSettings.theme))
       } finally {
-        setIsLoading(false)
+        if (!cancelled) setIsLoading(false)
       }
     }
     loadData()
+    return () => {
+      cancelled = true
+    }
   }, [hydrateTransfers])
 
   // End AI sessions when the app process is quitting (tray Quit / last window)
@@ -477,22 +497,46 @@ const App: FC = () => {
     setAiChatOpen(true)
   }
 
+  const invalidateAiAsk = useCallback(() => {
+    aiAskGenRef.current += 1
+    aiAssistantIdRef.current = null
+    setAiStreaming(false)
+    setPendingCommandApproval(null)
+  }, [])
+
   const handleNewSession = () => {
     if (!selectedServerId) return
+
+    invalidateAiAsk()
+
+    const current = viewingSessionId
+      ? aiSessionsRef.current.find(s => s.id === viewingSessionId)
+      : null
+    // Already on a blank active chat — keep it writable instead of ending it.
+    if (
+      current &&
+      current.serverId === selectedServerId &&
+      current.status === 'active' &&
+      current.messages.length === 0
+    ) {
+      setActiveSessionIdByServer(p => ({ ...p, [selectedServerId]: current.id }))
+      setViewingSessionId(current.id)
+      setAiChatOpen(true)
+      return
+    }
+
     const now = Date.now()
     const session = createAISession(selectedServerId)
-    replaceSessions(prev =>
-      prev
-        .map(s =>
-          s.serverId === selectedServerId && s.status === 'active'
-            ? { ...s, status: 'ended' as const, endedAt: now, updatedAt: now }
-            : s
-        )
-        .concat(session)
-    )
+    replaceSessions(prev => [
+      ...prev.map(s =>
+        s.serverId === selectedServerId && s.status === 'active'
+          ? { ...s, status: 'ended' as const, endedAt: now, updatedAt: now }
+          : s
+      ),
+      session,
+    ])
     setActiveSessionIdByServer(p => ({ ...p, [selectedServerId]: session.id }))
     setViewingSessionId(session.id)
-    setPendingCommandApproval(null)
     setAiChatOpen(true)
   }
 
@@ -502,9 +546,20 @@ const App: FC = () => {
     setViewingSessionId(sessionId)
     if (session.status === 'active') {
       setActiveSessionIdByServer(prev => ({ ...prev, [session.serverId]: sessionId }))
+    } else {
+      // Browsing history — don't leave a stuck streaming lock on the composer.
+      setAiStreaming(false)
+      setPendingCommandApproval(null)
     }
     setAiChatOpen(true)
   }
+
+  // Recover if the viewed session disappeared (e.g. stale id after reload).
+  useEffect(() => {
+    if (!aiChatOpen || !selectedServerId) return
+    if (viewingSessionId && aiSessionsRef.current.some(s => s.id === viewingSessionId)) return
+    ensureActiveSession(selectedServerId)
+  }, [aiChatOpen, selectedServerId, viewingSessionId, aiSessions, ensureActiveSession])
 
   const updateAssistantMessage = (sessionId: string, id: string, content: string) => {
     updateSessionById(sessionId, session => ({
@@ -594,6 +649,7 @@ const App: FC = () => {
     if (session.status !== 'active') return
 
     const sessionId = session.id
+    const askGen = ++aiAskGenRef.current
     const ai = appSettings.ai
 
     const userId = `u-${Date.now()}`
@@ -640,14 +696,17 @@ const App: FC = () => {
 
     let assembled = ''
     const unsubChunk = window.electronAPI.onAIChunk?.(chunk => {
+      if (aiAskGenRef.current !== askGen) return
       assembled += chunk
       updateAssistantMessage(sessionId, assistantId, assembled)
     })
     const unsubDone = window.electronAPI.onAIDone?.(full => {
+      if (aiAskGenRef.current !== askGen) return
       assembled = full || assembled
       updateAssistantMessage(sessionId, assistantId, assembled)
     })
     const unsubError = window.electronAPI.onAIError?.(error => {
+      if (aiAskGenRef.current !== askGen) return
       updateAssistantMessage(
         sessionId,
         assistantId,
@@ -665,6 +724,7 @@ const App: FC = () => {
         },
         priorHistory
       )
+      if (aiAskGenRef.current !== askGen) return
       if (result?.success) {
         const text = result.response || assembled || 'No response'
         updateAssistantMessage(sessionId, assistantId, text)
@@ -677,14 +737,17 @@ const App: FC = () => {
         )
       }
     } catch (e: unknown) {
+      if (aiAskGenRef.current !== askGen) return
       const message = e instanceof Error ? e.message : 'unknown'
       updateAssistantMessage(sessionId, assistantId, `AI error: ${message}`)
     } finally {
-      setAiStreaming(false)
-      aiAssistantIdRef.current = null
       unsubChunk?.()
       unsubDone?.()
       unsubError?.()
+      if (aiAskGenRef.current === askGen) {
+        setAiStreaming(false)
+        aiAssistantIdRef.current = null
+      }
     }
   }
 
@@ -785,7 +848,7 @@ const App: FC = () => {
                 open={aiChatOpen}
                 onClose={() => setAiChatOpen(false)}
                 messages={aiMessages}
-                streaming={aiStreaming}
+                streaming={aiStreaming && !sessionReadOnly}
                 onSend={handleAskAI}
                 serverName={selectedServer.name}
                 pendingApproval={pendingCommandApproval}

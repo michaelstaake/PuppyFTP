@@ -248,13 +248,9 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
                             <span className="truncate text-sm text-foreground">
                               {sessionLabel(session)}
                             </span>
-                            {session.status === 'active' ? (
+                            {session.status === 'active' && (
                               <span className="shrink-0 rounded bg-accent/15 px-1.5 py-0.5 text-[10px] font-medium text-accent">
                                 Active
-                              </span>
-                            ) : (
-                              <span className="shrink-0 text-[10px] text-muted-foreground">
-                                Read-only
                               </span>
                             )}
                           </div>
@@ -290,7 +286,7 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
         </div>
       </div>
 
-      {readOnly && (
+      {readOnly && messages.length > 0 && (
         <div className="shrink-0 border-b border-border bg-muted/40 px-4 py-1.5 text-center text-[11px] text-muted-foreground">
           This session has ended and is read-only
         </div>
@@ -301,8 +297,20 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
           <div className="flex h-full flex-col items-center justify-center gap-3 px-4 text-center text-muted-foreground">
             <MessageCircle className="h-8 w-8 opacity-40" />
             <p className="text-sm">
-              Ask about the current server — paths, permissions, transfers, or SSH commands.
+              {readOnly
+                ? 'This session has ended. Start a new chat to ask about this server.'
+                : 'Ask about the current server — paths, permissions, transfers, or SSH commands.'}
             </p>
+            {readOnly && (
+              <button
+                type="button"
+                onClick={onNewSession}
+                className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-accent-foreground hover:opacity-90"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                New chat
+              </button>
+            )}
           </div>
         )}
 
@@ -382,37 +390,53 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
         )}
       </div>
 
-      <form onSubmit={handleSubmit} className="shrink-0 border-t border-border p-3">
-        <div className="flex items-end gap-2 rounded-lg border border-border bg-background px-3 py-2 focus-within:border-accent">
-          <textarea
-            ref={inputRef}
-            value={draft}
-            onChange={e => setDraft(e.target.value)}
-            onKeyDown={handleKeyDown}
-            disabled={!canSend}
-            rows={2}
-            placeholder={readOnly ? 'Session is read-only' : 'Ask about this server…'}
-            className="max-h-32 min-h-[2.75rem] flex-1 resize-none bg-transparent py-1 text-sm leading-relaxed focus:outline-none placeholder:text-muted-foreground disabled:opacity-60"
-          />
-          <button
-            type="submit"
-            disabled={!draft.trim() || !canSend}
-            className="mb-0.5 shrink-0 rounded-md p-2 text-accent hover:bg-accent/10 disabled:opacity-40"
-            title="Send"
-            aria-label="Send message"
-          >
-            <Send className="h-4 w-4" />
-          </button>
+      {readOnly ? (
+        <div className="shrink-0 border-t border-border px-4 py-3">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-[11px] text-muted-foreground">
+              Read-only history — start a new chat to continue
+            </p>
+            <button
+              type="button"
+              onClick={onNewSession}
+              className="inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-accent hover:bg-accent/10"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              New chat
+            </button>
+          </div>
         </div>
-        <div className="mt-1.5 flex items-center justify-between gap-2">
-          <p className="text-[11px] text-muted-foreground">
-            {readOnly
-              ? 'Start a new chat to continue asking about this server'
-              : 'Enter to send · Shift+Enter for new line'}
-          </p>
-          <ContextUsageRing used={contextUsed} total={contextLength} />
-        </div>
-      </form>
+      ) : (
+        <form onSubmit={handleSubmit} className="shrink-0 border-t border-border p-3">
+          <div className="flex items-end gap-2 rounded-lg border border-border bg-background px-3 py-2 focus-within:border-accent">
+            <textarea
+              ref={inputRef}
+              value={draft}
+              onChange={e => setDraft(e.target.value)}
+              onKeyDown={handleKeyDown}
+              disabled={!canSend}
+              rows={2}
+              placeholder="Ask about this server…"
+              className="max-h-32 min-h-[2.75rem] flex-1 resize-none bg-transparent py-1 text-sm leading-relaxed focus:outline-none placeholder:text-muted-foreground disabled:opacity-60"
+            />
+            <button
+              type="submit"
+              disabled={!draft.trim() || !canSend}
+              className="mb-0.5 shrink-0 rounded-md p-2 text-accent hover:bg-accent/10 disabled:opacity-40"
+              title="Send"
+              aria-label="Send message"
+            >
+              <Send className="h-4 w-4" />
+            </button>
+          </div>
+          <div className="mt-1.5 flex items-center justify-between gap-2">
+            <p className="text-[11px] text-muted-foreground">
+              Enter to send · Shift+Enter for new line
+            </p>
+            <ContextUsageRing used={contextUsed} total={contextLength} />
+          </div>
+        </form>
+      )}
     </div>
   )
 }
