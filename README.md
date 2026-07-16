@@ -40,6 +40,8 @@ npm run build:mac    # macOS .dmg + .zip
 npm run build:linux  # Linux AppImage + .deb
 ```
 
+Note: As we have not implemented code signing, you may receive warnings from your OS about running unknown programs, or in some cases, false positives from certain AV software. This is expected behavior and is safe to ignore.
+
 ## AI Features
 
 PuppyFTP must be connected to an OpenAI-compatible endpoint, whether running on your PC, on a self-hosted AI server, or cloud API. For your convenience, we have some presets that you can access by typing / in the Base URL input field.
