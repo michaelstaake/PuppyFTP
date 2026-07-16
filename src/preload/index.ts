@@ -39,6 +39,16 @@ const api: ElectronAPI = {
     }
   },
   openDataFolder: (): Promise<boolean> => ipcRenderer.invoke('store:open-data-folder'),
+  writeClipboardText: (text: string): Promise<boolean> =>
+    ipcRenderer.invoke('clipboard:write-text', text),
+  readClipboardText: (): Promise<string> => ipcRenderer.invoke('clipboard:read-text'),
+  captureRectToClipboard: (rect?: {
+    x: number
+    y: number
+    width: number
+    height: number
+  }): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('window:capture-rect-to-clipboard', rect),
 
   // Terminal (Phase 2)
   createTerminal: (server: Server): Promise<string> => ipcRenderer.invoke('terminal:create', server),

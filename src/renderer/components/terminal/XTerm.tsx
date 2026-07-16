@@ -14,6 +14,14 @@ export interface XTermHandle {
   getSessionId: () => string | null
   /** Serialize visible buffer + scrollback for handoff to another window. */
   serialize: () => string
+  /** Selected terminal text, or empty string if none. */
+  getSelection: () => string
+  hasSelection: () => boolean
+  /** Paste text into the terminal (sends to remote as typed input). */
+  paste: (text: string) => void
+  /** Bounding rect of the terminal element for screenshots (viewport coords). */
+  getBoundingClientRect: () => DOMRect | null
+  focus: () => void
 }
 
 interface XTermProps {
@@ -71,6 +79,17 @@ const XTerm = forwardRef<XTermHandle, XTermProps>(function XTerm(
       } catch {
         return ''
       }
+    },
+    getSelection: () => termRef.current?.getSelection() ?? '',
+    hasSelection: () => !!termRef.current?.hasSelection(),
+    paste: (text: string) => {
+      const term = termRef.current
+      if (!term || !text) return
+      term.paste(text)
+    },
+    getBoundingClientRect: () => containerRef.current?.getBoundingClientRect() ?? null,
+    focus: () => {
+      termRef.current?.focus()
     },
   }))
 

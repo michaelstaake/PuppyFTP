@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, shell, nativeTheme, Tray, Menu, globalShortcut, webContents } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, shell, nativeTheme, Tray, Menu, globalShortcut, webContents, clipboard } from 'electron'
 import { join } from 'path'
 import { readFileSync, writeFileSync, mkdirSync } from 'fs'
 import { Client } from 'ssh2'
@@ -429,6 +429,42 @@ ipcMain.handle('theme:set-chrome', (_, resolved: ResolvedTheme) => {
   return true
 })
 
+ipcMain.handle('clipboard:write-text', (_event, text: string) => {
+  clipboard.writeText(typeof text === 'string' ? text : '')
+  return true
+})
+
+ipcMain.handle('clipboard:read-text', () => clipboard.readText())
+
+ipcMain.handle(
+  'window:capture-rect-to-clipboard',
+  async (
+    event,
+    rect?: { x?: number; y?: number; width?: number; height?: number }
+  ): Promise<{ success: boolean; error?: string }> => {
+    try {
+      const win = BrowserWindow.fromWebContents(event.sender)
+      if (!win || win.isDestroyed()) {
+        return { success: false, error: 'Window not available' }
+      }
+      const x = Math.max(0, Math.round(Number(rect?.x) || 0))
+      const y = Math.max(0, Math.round(Number(rect?.y) || 0))
+      const width = Math.max(1, Math.round(Number(rect?.width) || 0))
+      const height = Math.max(1, Math.round(Number(rect?.height) || 0))
+      const image =
+        rect && width > 0 && height > 0
+          ? await win.webContents.capturePage({ x, y, width, height })
+          : await win.webContents.capturePage()
+      if (!image || image.isEmpty()) {
+        return { success: false, error: 'Capture failed' }
+      }
+      clipboard.writeImage(image)
+      return { success: true }
+    } catch (err) {
+      return { success: false, error: String(err) }
+    }
+  }
+)
 
 // --- Phase 2: SSH Terminal support ---
 interface TerminalSession {

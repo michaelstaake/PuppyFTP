@@ -1,7 +1,8 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useRef, useState, useCallback } from 'react'
 import { Server, protocolLabel } from '@shared/types'
 import { applyResolvedTheme, normalizeThemePreference, resolveTheme } from '../../lib/theme'
 import XTerm, { XTermHandle } from './XTerm'
+import TerminalActionsMenu, { TerminalMenuAnchor } from './TerminalActionsMenu'
 
 interface TerminalPopoutAppProps {
   serverId: string
@@ -12,7 +13,10 @@ const TerminalPopoutApp: React.FC<TerminalPopoutAppProps> = ({ serverId, session
   const [server, setServer] = useState<Server | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [closed, setClosed] = useState(false)
+  const [terminalMenu, setTerminalMenu] = useState<TerminalMenuAnchor | null>(null)
   const xtermRef = useRef<XTermHandle | null>(null)
+
+  const closeTerminalMenu = useCallback(() => setTerminalMenu(null), [])
 
   useEffect(() => {
     let cancelled = false
@@ -74,12 +78,31 @@ const TerminalPopoutApp: React.FC<TerminalPopoutAppProps> = ({ serverId, session
     )
   }
 
+  const platform = typeof window !== 'undefined' ? window.electronAPI?.platform : undefined
+  const headerPadStyle: React.CSSProperties =
+    platform === 'darwin'
+      ? { paddingLeft: 78, paddingRight: 16 }
+      : { paddingLeft: 16, paddingRight: 148 }
+
   return (
     <div className="h-screen w-screen flex flex-col bg-surface overflow-hidden">
       <div
-        className="h-12 border-b border-border px-4 flex items-center gap-3 bg-surface-elevated shrink-0"
-        style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
+        className="h-12 border-b border-border flex items-center gap-3 bg-surface-elevated shrink-0"
+        style={{ WebkitAppRegion: 'drag', ...headerPadStyle } as React.CSSProperties}
       >
+        <img
+          src="./logo-icon.png"
+          alt="PuppyFTP"
+          title="Terminal actions"
+          className="h-6 w-6 object-contain shrink-0"
+          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+          onContextMenu={e => {
+            e.preventDefault()
+            e.stopPropagation()
+            setTerminalMenu({ x: e.clientX, y: e.clientY })
+          }}
+          draggable={false}
+        />
         <span
           className="font-mono text-xs bg-muted px-2 py-0.5 rounded"
           style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
@@ -91,6 +114,16 @@ const TerminalPopoutApp: React.FC<TerminalPopoutAppProps> = ({ serverId, session
           — {server.username}@{server.host}:{server.port}
         </span>
       </div>
+
+      {terminalMenu && (
+        <TerminalActionsMenu
+          open
+          anchor={terminalMenu}
+          terminal={xtermRef.current}
+          onClose={closeTerminalMenu}
+        />
+      )}
+
       <div className="flex-1 min-h-0 overflow-hidden relative">
         {closed ? (
           <div className="absolute inset-0 flex items-center justify-center text-sm text-muted-foreground bg-[#0a0a0f]">

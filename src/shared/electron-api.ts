@@ -29,6 +29,14 @@ export type ElectronAPI = {
   setThemeChrome: (resolved: ResolvedTheme) => Promise<boolean>
   onSystemThemeChange: (callback: (resolved: ResolvedTheme) => void) => () => void
   openDataFolder: () => Promise<boolean>
+  writeClipboardText: (text: string) => Promise<boolean>
+  readClipboardText: () => Promise<string>
+  captureRectToClipboard: (rect?: {
+    x: number
+    y: number
+    width: number
+    height: number
+  }) => Promise<{ success: boolean; error?: string }>
 
   createTerminal: (server: Server) => Promise<string>
   sendTerminalData: (sessionId: string, data: string) => Promise<void>

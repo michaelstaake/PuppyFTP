@@ -9,9 +9,11 @@ import {
   Loader2,
   SquareArrowOutUpRight,
   SquareArrowDownLeft,
+  EllipsisVertical,
 } from 'lucide-react'
 import XTerm, { XTermHandle } from '../terminal/XTerm'
 import DualPaneExplorer, { DualPaneExplorerHandle } from '../explorer/DualPaneExplorer'
+import TerminalActionsMenu, { TerminalMenuAnchor } from '../terminal/TerminalActionsMenu'
 
 interface MainAreaProps {
   server: Server | null
@@ -62,11 +64,22 @@ const MainArea: React.FC<MainAreaProps> = ({
 }) => {
   const explorerRef = React.useRef<DualPaneExplorerHandle>(null)
   const xtermRefs = React.useRef<Record<string, XTermHandle | null>>({})
+  const menuButtonRef = React.useRef<HTMLButtonElement>(null)
   const [explorerStatus, setExplorerStatus] = React.useState({ loading: false, isExploring: false })
   const [appVersion, setAppVersion] = React.useState<string | null>(null)
+  const [terminalMenu, setTerminalMenu] = React.useState<TerminalMenuAnchor | null>(null)
 
   const handleExplorerStatus = React.useCallback((status: { loading: boolean; isExploring: boolean }) => {
     setExplorerStatus(status)
+  }, [])
+
+  const closeTerminalMenu = React.useCallback(() => setTerminalMenu(null), [])
+
+  const openTerminalMenu = React.useCallback(() => {
+    const btn = menuButtonRef.current
+    if (!btn) return
+    const rect = btn.getBoundingClientRect()
+    setTerminalMenu({ x: Math.max(8, rect.right - 160), y: rect.bottom + 4 })
   }, [])
 
   React.useEffect(() => {
@@ -172,6 +185,24 @@ const MainArea: React.FC<MainAreaProps> = ({
             </>
           )}
 
+          {isConnected && isSshTerminal && !isPoppedOut && (
+            <button
+              ref={menuButtonRef}
+              type="button"
+              onClick={() => {
+                if (terminalMenu) closeTerminalMenu()
+                else openTerminalMenu()
+              }}
+              title="Terminal actions"
+              aria-label="Terminal actions"
+              aria-haspopup="menu"
+              aria-expanded={!!terminalMenu}
+              className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted"
+            >
+              <EllipsisVertical className="h-4 w-4" />
+            </button>
+          )}
+
           {isConnected && isSshTerminal && (
             <button
               type="button"
@@ -217,6 +248,16 @@ const MainArea: React.FC<MainAreaProps> = ({
           )}
         </div>
       </div>
+
+      {terminalMenu && server && (
+        <TerminalActionsMenu
+          open
+          anchor={terminalMenu}
+          terminal={xtermRefs.current[server.id] ?? null}
+          onClose={closeTerminalMenu}
+          ignoreCloseRef={menuButtonRef}
+        />
+      )}
 
       <div className="flex-1 min-h-0 overflow-hidden relative">
         {!sessionOpen && (
