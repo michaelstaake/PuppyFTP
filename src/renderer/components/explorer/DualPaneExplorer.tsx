@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useImperativeHandle, forwardRef, useRef, useMemo } from 'react'
 import { Server } from '@shared/types'
 import type { ExploreProgressEvent, FileEntry, RemoteCacheEntry } from '@shared/types'
-import { ArrowUp, FolderPlus, Upload, Download, Pencil, Trash2, Shield } from 'lucide-react'
+import { ArrowUp, Folder, File as FileIcon, FolderPlus, Upload, Download, Pencil, Trash2, Shield } from 'lucide-react'
 import { useTransferStore } from '../../store/transferStore'
 import { useExplorerStore } from '../../store/explorerStore'
 import PermissionsDialog from './PermissionsDialog'
@@ -597,8 +597,13 @@ const DualPaneExplorer = forwardRef<DualPaneExplorerHandle, DualPaneExplorerProp
                 setDropTarget(null)
               }}
             >
+              {e.type === 'dir' ? (
+                <Folder className="h-4 w-4 shrink-0 text-accent pointer-events-none" aria-hidden />
+              ) : (
+                <FileIcon className="h-4 w-4 shrink-0 text-muted-foreground pointer-events-none" aria-hidden />
+              )}
               <span className="flex-1 truncate pointer-events-none">
-                {e.name}{e.type === 'dir' ? '/' : ''}
+                {e.name}
               </span>
               <span className="text-[10px] text-muted-foreground w-16 text-right pointer-events-none">
                 {e.type === 'dir' ? '' : ((e.size || 0) / 1024).toFixed(1) + 'k'}
