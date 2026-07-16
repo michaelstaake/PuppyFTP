@@ -19,12 +19,12 @@ const FLAGS: { key: Flag; label: string; bit: number }[] = [
 const ROLE_SHIFT: Record<Role, number> = { owner: 6, group: 3, other: 0 }
 
 /** Parse symbolic (rwxr-xr-x), typed (-rwxr-xr-x), or octal (755 / 0755) into 0–0o777. */
-export function parsePermissions(value?: string): number {
+function parsePermissions(value?: string): number {
   if (!value) return 0
   const raw = value.trim()
   if (/^[0-7]{3,4}$/.test(raw)) return parseInt(raw.slice(-3), 8) & 0o777
-  const sym = raw.replace(/^[\-dlbcps]/, '')
-  if (!/^[rwx\-]{9}$/i.test(sym)) return 0
+  const sym = raw.replace(/^[-dlbcps]/, '')
+  if (!/^[rwx-]{9}$/i.test(sym)) return 0
   let n = 0
   for (let i = 0; i < 9; i++) {
     const c = sym[i].toLowerCase()
@@ -36,7 +36,7 @@ export function parsePermissions(value?: string): number {
   return n & 0o777
 }
 
-export function modeToOctal(mode: number): string {
+function modeToOctal(mode: number): string {
   return (mode & 0o777).toString(8).padStart(3, '0')
 }
 

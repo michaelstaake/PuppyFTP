@@ -104,8 +104,8 @@ function parseMode(mode: number | string): number | null {
   if (/^[0-7]{3,4}$/.test(raw)) {
     return parseInt(raw.slice(-3), 8) & 0o777
   }
-  const sym = raw.replace(/^[\-dlbcps]/, '')
-  if (/^[rwx\-]{9}$/i.test(sym)) {
+  const sym = raw.replace(/^[-dlbcps]/, '')
+  if (/^[rwx-]{9}$/i.test(sym)) {
     let n = 0
     for (let i = 0; i < 9; i++) {
       const c = sym[i].toLowerCase()
