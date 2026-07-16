@@ -685,7 +685,7 @@ const DualPaneExplorer = forwardRef<DualPaneExplorerHandle, DualPaneExplorerProp
 
   const fileFontClass =
     fontStyle === 'mono' ? 'font-mono' : fontStyle === 'sans' ? 'font-sans' : 'font-ubuntu'
-  const fileFontStyle = { fontSize: `${fontSize}px` } as const
+  const fileFontStyle = { fontSize: `${fontSize}px`, lineHeight: 1.45 } as const
 
   const renderList = (side: PaneSide) => {
     const entries = side === 'local' ? sortedLocal : sortedRemote
@@ -744,7 +744,7 @@ const DualPaneExplorer = forwardRef<DualPaneExplorerHandle, DualPaneExplorerProp
               <div
                 key={e.path}
                 draggable
-                className={`flex items-center gap-2 px-2 py-0.5 rounded cursor-default group select-none ${
+                className={`flex items-center gap-2 px-2 py-1 rounded cursor-default group select-none ${
                   isSelected ? 'bg-accent/25 text-foreground' : 'hover:bg-muted/60'
                 }`}
                 onClick={ev => {
@@ -767,7 +767,7 @@ const DualPaneExplorer = forwardRef<DualPaneExplorerHandle, DualPaneExplorerProp
                 ) : (
                   <FileIcon className="h-4 w-4 shrink-0 text-muted-foreground pointer-events-none" aria-hidden />
                 )}
-                <span className="flex-1 truncate pointer-events-none min-w-0">
+                <span className="flex-1 min-w-0 overflow-x-hidden text-ellipsis whitespace-nowrap pointer-events-none">
                   {e.name}
                 </span>
                 <span className="text-[10px] text-muted-foreground w-14 text-right pointer-events-none shrink-0">
