@@ -39,6 +39,7 @@ interface ServerSidebarProps {
   selectedServerId: string | null
   connectionByServerId: Record<string, 'connecting' | 'connected' | 'lost' | 'failed'>
   onSelectServer: (id: string) => void
+  onConnectServer: (id: string) => void
   onAddServer: (data: Omit<Server, 'id' | 'createdAt' | 'order'>) => Promise<void>
   onDeleteServer: (id: string) => Promise<void>
   onDeleteServers: (ids: string[]) => Promise<void>
@@ -153,6 +154,7 @@ const ServerSidebar: React.FC<ServerSidebarProps> = ({
   selectedServerId,
   connectionByServerId,
   onSelectServer,
+  onConnectServer,
   onAddServer,
   onDeleteServer,
   onDeleteServers,
@@ -682,6 +684,11 @@ const ServerSidebar: React.FC<ServerSidebarProps> = ({
                     key={server.id}
                     className={`server-item ml-2 ${selectedServerId === server.id ? 'active' : ''}`}
                     onClick={() => onSelectServer(server.id)}
+                    onDoubleClick={() => {
+                      const status = connectionByServerId[server.id]
+                      if (status === 'connected' || status === 'connecting') return
+                      onConnectServer(server.id)
+                    }}
                     onContextMenu={e => {
                       e.preventDefault()
                       e.stopPropagation()

@@ -148,6 +148,12 @@ export type ElectronAPI = {
     }) => void
   ) => () => void
 
+  setJumpListCurrentSessions: (serverIds: string[]) => Promise<boolean>
+  jumpListRendererReady: () => Promise<boolean>
+  onJumpListNavigate: (
+    callback: (payload: { action: 'focus' | 'connect'; serverId: string }) => void
+  ) => () => void
+
   platform: NodeJS.Platform
 }
 

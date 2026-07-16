@@ -7,6 +7,13 @@ import { registerFsHandlers, closeAllRemoteClients, close as closeRemoteCache } 
 import { registerRdpHandlers, closeAllRdpSessions } from './rdp-handlers'
 import { getSummaryEntries } from './services/remote-cache'
 import { configureServersStore, readServers, writeServers, updateServerFields } from './services/servers-store'
+import {
+  parseJumpListArgv,
+  rebuildJumpList,
+  setJumpListCurrentSessions,
+  isJumpListEnabled,
+  type JumpListAction,
+} from './services/jump-list'
 import { createHostKeyVerifier } from './services/host-key'
 import { TelnetSession } from './services/telnet-session'
 import { SerialSession, listSerialPorts } from './services/serial-session'
@@ -30,6 +37,11 @@ const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged
 const gotTheLock = app.requestSingleInstanceLock()
 if (!gotTheLock) {
   app.quit()
+}
+
+// Required for Windows Jump Lists (installed NSIS build only — not portable/dev).
+if (isJumpListEnabled()) {
+  app.setAppUserModelId('com.puppyftp.app')
 }
 
 const userDataPath = app.getPath('userData')
@@ -184,8 +196,64 @@ function focusMainWindow(): void {
   mainWindow.moveTop()
 }
 
+type JumpListNavigatePayload = { action: JumpListAction; serverId: string }
+
+let pendingJumpListNavigate: JumpListNavigatePayload | null = null
+let mainRendererReady = false
+
+function focusTerminalPopout(serverId: string): boolean {
+  const existing = terminalPopouts.get(serverId)
+  if (!existing || existing.window.isDestroyed()) return false
+  if (existing.window.isMinimized()) existing.window.restore()
+  if (!existing.window.isVisible()) existing.window.show()
+  existing.window.focus()
+  existing.window.moveTop()
+  return true
+}
+
+function sendJumpListNavigate(payload: JumpListNavigatePayload): void {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    pendingJumpListNavigate = payload
+    if (app.isReady()) createWindow()
+    return
+  }
+  if (!mainRendererReady) {
+    pendingJumpListNavigate = payload
+    focusMainWindow()
+    return
+  }
+  pendingJumpListNavigate = null
+  mainWindow.webContents.send('jump-list:navigate', payload)
+}
+
+function handleJumpListAction(payload: JumpListNavigatePayload): void {
+  if (payload.action === 'focus') {
+    if (focusTerminalPopout(payload.serverId)) {
+      // Still tell the renderer to select the session so UI stays in sync.
+      sendJumpListNavigate(payload)
+      return
+    }
+    focusMainWindow()
+    sendJumpListNavigate(payload)
+    return
+  }
+  // connect — always bring main window forward and ask renderer to connect
+  focusMainWindow()
+  sendJumpListNavigate(payload)
+}
+
+function consumeJumpListArgv(argv: string[]): void {
+  const parsed = parseJumpListArgv(argv)
+  if (parsed) handleJumpListAction(parsed)
+}
+
 if (gotTheLock) {
-  app.on('second-instance', () => {
+  app.on('second-instance', (_event, argv) => {
+    const parsed = parseJumpListArgv(argv)
+    if (parsed) {
+      handleJumpListAction(parsed)
+      return
+    }
     focusMainWindow()
   })
 }
@@ -226,6 +294,7 @@ function resolveAppIcon(): string {
 }
 
 function createWindow(): void {
+  mainRendererReady = false
   const settings = readJsonSync(SETTINGS_PATH, DEFAULT_SETTINGS)
   const preference = normalizeTheme(settings?.theme)
   syncNativeThemeSource(preference)
@@ -314,6 +383,22 @@ ipcMain.handle('store:save-servers', (_, servers: Server[]) => {
   const nextIds = new Set(servers.map(s => s.id))
   for (const old of previous) {
     if (!nextIds.has(old.id)) deleteAISessionsForServer(old.id)
+  }
+  rebuildJumpList()
+  return true
+})
+ipcMain.handle('jump-list:set-current-sessions', (_, serverIds: string[]) => {
+  setJumpListCurrentSessions(Array.isArray(serverIds) ? serverIds.filter(id => typeof id === 'string') : [])
+  return true
+})
+ipcMain.handle('jump-list:renderer-ready', () => {
+  mainRendererReady = true
+  if (pendingJumpListNavigate) {
+    const payload = pendingJumpListNavigate
+    pendingJumpListNavigate = null
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('jump-list:navigate', payload)
+    }
   }
   return true
 })
@@ -1332,7 +1417,10 @@ if (gotTheLock) {
     // Crash recovery: leftover "active" chats become read-only history
     endAllActiveAISessions()
     syncNativeThemeSource(normalizeTheme(readJsonSync(SETTINGS_PATH, DEFAULT_SETTINGS).theme))
+    rebuildJumpList()
     createWindow()
+    // Cold-start Jump List / CLI connect (second-instance only fires when already running)
+    consumeJumpListArgv(process.argv)
 
     // --- Phase 6: System Tray + Global Hotkey (packaged only — avoids "vanished" window in dev) ---
     const createTray = () => {

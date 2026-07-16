@@ -241,6 +241,20 @@ const api: ElectronAPI = {
     return () => ipcRenderer.removeListener('ai:command-status', listener)
   },
 
+  setJumpListCurrentSessions: (serverIds: string[]): Promise<boolean> =>
+    ipcRenderer.invoke('jump-list:set-current-sessions', serverIds),
+  jumpListRendererReady: (): Promise<boolean> => ipcRenderer.invoke('jump-list:renderer-ready'),
+  onJumpListNavigate: (
+    callback: (payload: { action: 'focus' | 'connect'; serverId: string }) => void
+  ): (() => void) => {
+    const listener = (
+      _e: Electron.IpcRendererEvent,
+      payload: { action: 'focus' | 'connect'; serverId: string }
+    ) => callback(payload)
+    ipcRenderer.on('jump-list:navigate', listener)
+    return () => ipcRenderer.removeListener('jump-list:navigate', listener)
+  },
+
   platform: process.platform,
 }
 

@@ -201,6 +201,14 @@ const App: FC = () => {
       if (prev[id] === 'connected') return prev
       return { ...prev, [id]: 'connected' }
     })
+    setServers(prev => {
+      const current = prev.find(s => s.id === id)
+      if (!current) return prev
+      const now = Date.now()
+      const updated = prev.map(s => (s.id === id ? { ...s, lastConnectedAt: now } : s))
+      void window.electronAPI?.saveServers(updated)
+      return updated
+    })
   }, [])
 
   const markConnectionFailed = useCallback((id: string) => {
@@ -524,7 +532,7 @@ const App: FC = () => {
     showToast(ids.length === 1 ? 'Server removed' : `${ids.length} servers removed`, 'info')
   }
 
-  const selectServer = (id: string) => {
+  const selectServer = useCallback((id: string) => {
     setShowSettings(false)
     setShowTransfers(false)
     // Hide Ask AI when switching servers; session stays active for reopen
@@ -532,20 +540,61 @@ const App: FC = () => {
     setPendingCommandApproval(null)
 
     // Abandoned connect attempts shouldn't stick as failed/connecting when leaving the server.
-    if (selectedServerId && selectedServerId !== id) {
-      const leavingId = selectedServerId
-      setConnectionByServerId(prev => {
-        const status = prev[leavingId]
-        if (status !== 'failed' && status !== 'connecting') return prev
-        const next = { ...prev }
-        delete next[leavingId]
-        void window.electronAPI?.disconnectRemote?.(leavingId).catch(() => {})
-        return next
-      })
-    }
+    setSelectedServerId(prevSelected => {
+      if (prevSelected && prevSelected !== id) {
+        const leavingId = prevSelected
+        setConnectionByServerId(prev => {
+          const status = prev[leavingId]
+          if (status !== 'failed' && status !== 'connecting') return prev
+          const next = { ...prev }
+          delete next[leavingId]
+          void window.electronAPI?.disconnectRemote?.(leavingId).catch(() => {})
+          return next
+        })
+      }
+      return id
+    })
+  }, [])
 
-    setSelectedServerId(id)
-  }
+  const connectServerById = useCallback(
+    (id: string) => {
+      selectServer(id)
+      setConnectionByServerId(prev => {
+        if (prev[id] === 'connected' || prev[id] === 'connecting') {
+          return prev
+        }
+        return { ...prev, [id]: 'connecting' }
+      })
+    },
+    [selectServer]
+  )
+
+  // Keep Windows taskbar Jump List "Current" section in sync with live sessions.
+  useEffect(() => {
+    if (!window.electronAPI?.setJumpListCurrentSessions) return
+    const ids = servers
+      .filter(s => {
+        const status = connectionByServerId[s.id]
+        return status != null && sessionStatuses.includes(status)
+      })
+      .map(s => s.id)
+    void window.electronAPI.setJumpListCurrentSessions(ids)
+  }, [servers, connectionByServerId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Taskbar Jump List navigation (focus session / connect to server).
+  useEffect(() => {
+    if (!window.electronAPI?.onJumpListNavigate) return
+    const unsub = window.electronAPI.onJumpListNavigate(({ action, serverId }) => {
+      if (!serverId) return
+      if (action === 'connect') {
+        connectServerById(serverId)
+        return
+      }
+      selectServer(serverId)
+    })
+    void window.electronAPI.jumpListRendererReady?.()
+    return unsub
+  }, [selectServer, connectServerById])
 
   const aiEnabled = appSettings?.ai.enabled !== false
   const contextLength = appSettings?.ai.contextLength || DEFAULT_CONTEXT_LENGTH
@@ -966,6 +1015,7 @@ const App: FC = () => {
           selectedServerId={showSettings || showTransfers ? null : selectedServerId}
           connectionByServerId={connectionByServerId}
           onSelectServer={selectServer}
+          onConnectServer={connectServerById}
           onAddServer={addServer}
           onDeleteServer={deleteServer}
           onDeleteServers={deleteServers}
