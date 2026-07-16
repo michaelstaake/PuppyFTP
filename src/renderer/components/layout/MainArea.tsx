@@ -1,5 +1,5 @@
 import React from 'react'
-import { Server, protocolLabel } from '@shared/types'
+import { Server, isTerminalProtocol, protocolLabel } from '@shared/types'
 import {
   MessageCircle,
   RefreshCw,
@@ -105,7 +105,7 @@ const MainArea: React.FC<MainAreaProps> = ({
   }, [])
 
   const handleTogglePopOut = React.useCallback(() => {
-    if (!server || server.protocol !== 'ssh') return
+    if (!server || !isTerminalProtocol(server.protocol)) return
     const id = server.id
     if (poppedOutByServerId[id]) {
       void window.electronAPI?.dockTerminal?.(id).then(result => {
@@ -152,7 +152,7 @@ const MainArea: React.FC<MainAreaProps> = ({
     server.protocol === 'ftps' ||
     server.protocol === 'ftps-implicit'
 
-  const isSshTerminal = server.protocol === 'ssh'
+  const isTerminal = isTerminalProtocol(server.protocol)
   const isRdpDesktop = server.protocol === 'rdp'
   const isPoppedOut = !!poppedOutByServerId[server.id]
   const sessionOpen = isConnected || isConnecting || isConnectionLost || isConnectionFailed
@@ -197,7 +197,7 @@ const MainArea: React.FC<MainAreaProps> = ({
             </>
           )}
 
-          {isConnected && isSshTerminal && !isPoppedOut && (
+          {isConnected && isTerminal && !isPoppedOut && (
             <button
               ref={menuButtonRef}
               type="button"
@@ -215,7 +215,7 @@ const MainArea: React.FC<MainAreaProps> = ({
             </button>
           )}
 
-          {isConnected && isSshTerminal && (
+          {isConnected && isTerminal && (
             <button
               type="button"
               onClick={handleTogglePopOut}
@@ -339,7 +339,7 @@ const MainArea: React.FC<MainAreaProps> = ({
           </div>
         )}
 
-        {isConnected && isPoppedOut && isSshTerminal && (
+        {isConnected && isPoppedOut && isTerminal && (
           <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-surface text-muted-foreground">
             <SquareArrowOutUpRight className="h-8 w-8 opacity-50" aria-hidden />
             <div className="text-sm font-medium text-foreground">Session open in other window.</div>
@@ -351,7 +351,7 @@ const MainArea: React.FC<MainAreaProps> = ({
 
         {connectedServers.map(s => {
           const isActive = isConnected && s.id === server.id
-          const sIsTerminal = s.protocol === 'ssh'
+          const sIsTerminal = isTerminalProtocol(s.protocol)
           const sIsRdp = s.protocol === 'rdp'
           const sIsFileTransfer =
             s.protocol === 'sftp' ||

@@ -2,12 +2,13 @@ import { app, BrowserWindow, ipcMain, dialog, shell, nativeTheme, Tray, Menu, gl
 import { join } from 'path'
 import { readFileSync, writeFileSync, mkdirSync } from 'fs'
 import { Client } from 'ssh2'
-import { Server, Category, AppSettings, ResolvedTheme, ThemePreference, AISessionsStore, TransferHistoryStore, DEFAULT_CONNECTION_TIMEOUT, normalizeConnectionTimeout, DEFAULT_CATEGORIES } from '../shared/types'
+import { Server, Category, AppSettings, ResolvedTheme, ThemePreference, AISessionsStore, TransferHistoryStore, DEFAULT_CONNECTION_TIMEOUT, normalizeConnectionTimeout, DEFAULT_CATEGORIES, protocolLabel } from '../shared/types'
 import { registerFsHandlers, closeAllRemoteClients, close as closeRemoteCache } from './fs-handlers'
 import { registerRdpHandlers, closeAllRdpSessions } from './rdp-handlers'
 import { getSummaryEntries } from './services/remote-cache'
 import { configureServersStore, readServers, writeServers, updateServerFields } from './services/servers-store'
 import { createHostKeyVerifier } from './services/host-key'
+import { TelnetSession } from './services/telnet-session'
 import {
   askAI,
   buildTreeSummaryFromRows,
@@ -467,10 +468,14 @@ ipcMain.handle(
   }
 )
 
-// --- Phase 2: SSH Terminal support ---
+// --- Phase 2: SSH / Telnet Terminal support ---
 interface TerminalSession {
+  /** SSH client (ssh2); null for Telnet. */
   client: any // eslint-disable-line @typescript-eslint/no-explicit-any
+  /** SSH shell stream; null for Telnet. */
   stream: any // eslint-disable-line @typescript-eslint/no-explicit-any
+  /** Telnet session; null for SSH. */
+  telnet: TelnetSession | null
   serverId: string
   ownerWebContentsId: number | null
 }
@@ -494,7 +499,9 @@ function findTerminalSessionEntryForServer(
   serverId: string
 ): { sessionId: string; session: TerminalSession } | undefined {
   for (const [sessionId, sess] of terminalSessions) {
-    if (sess.serverId === serverId && sess.client) return { sessionId, session: sess }
+    if (sess.serverId === serverId && (sess.client || sess.telnet)) {
+      return { sessionId, session: sess }
+    }
   }
   return undefined
 }
@@ -594,6 +601,7 @@ function endTerminalSession(sessionId: string): void {
   if (!sess) return
   try { if (sess.stream?.end) sess.stream.end() } catch { /* ignore */ }
   try { if (sess.client?.end) sess.client.end() } catch { /* ignore */ }
+  try { if (sess.telnet) sess.telnet.end() } catch { /* ignore */ }
   terminalSessions.delete(sessionId)
   terminalScrollbacks.delete(sessionId)
 }
@@ -628,7 +636,7 @@ function createTerminalPopoutWindow(serverId: string, sessionId: string, title: 
     show: false,
     autoHideMenuBar: true,
     icon: resolveAppIcon(),
-    title: title || 'SSH Terminal',
+    title: title || 'Terminal',
     webPreferences: {
       preload: join(__dirname, '../preload/index.cjs'),
       sandbox: true,
@@ -815,6 +823,55 @@ ipcMain.handle(
 
 ipcMain.handle("terminal:create", async (event, server: Server) => {
   const sessionId = generateSessionId()
+
+  if (server.protocol === 'telnet') {
+    const telnet = new TelnetSession({
+      host: server.host,
+      port: server.port || 23,
+      timeoutMs: getConnectionTimeoutMs(server),
+      terminalType: 'xterm-256color',
+    })
+    const session: TerminalSession = {
+      client: null,
+      stream: null,
+      telnet,
+      serverId: server.id,
+      ownerWebContentsId: event.sender.id,
+    }
+    terminalSessions.set(sessionId, session)
+
+    telnet.on('data', (text: string) => {
+      appendTerminalScrollback(sessionId, text)
+      sendToTerminalOwner(sessionId, 'terminal:data', sessionId, text)
+    })
+
+    telnet.on('close', () => {
+      if (!terminalSessions.has(sessionId)) return
+      emitTerminalExit(sessionId, server.id)
+      terminalSessions.delete(sessionId)
+    })
+
+    telnet.on('error', () => {
+      if (!terminalSessions.has(sessionId)) return
+      emitTerminalExit(sessionId, server.id)
+      try { telnet.end() } catch { /* ignore */ }
+      terminalSessions.delete(sessionId)
+    })
+
+    try {
+      await telnet.connect()
+      return sessionId
+    } catch (err) {
+      terminalSessions.delete(sessionId)
+      try { telnet.end() } catch { /* ignore */ }
+      throw err
+    }
+  }
+
+  if (server.protocol !== 'ssh') {
+    throw new Error(`Unsupported terminal protocol: ${server.protocol}`)
+  }
+
   return new Promise<string>((resolve, reject) => {
     let connectConfig: Record<string, unknown>
     try {
@@ -828,6 +885,7 @@ ipcMain.handle("terminal:create", async (event, server: Server) => {
     const session: TerminalSession = {
       client,
       stream: null,
+      telnet: null,
       serverId: server.id,
       ownerWebContentsId: event.sender.id,
     }
@@ -884,7 +942,10 @@ ipcMain.handle("terminal:create", async (event, server: Server) => {
 
 ipcMain.handle("terminal:input", async (_, sessionId: string, data: string) => {
   const sess = terminalSessions.get(sessionId)
-  if (sess && sess.stream) {
+  if (!sess) return true
+  if (sess.telnet) {
+    sess.telnet.write(data)
+  } else if (sess.stream) {
     sess.stream.write(data)
   }
   return true
@@ -892,7 +953,10 @@ ipcMain.handle("terminal:input", async (_, sessionId: string, data: string) => {
 
 ipcMain.handle("terminal:resize", async (_, sessionId: string, cols: number, rows: number) => {
   const sess = terminalSessions.get(sessionId)
-  if (sess && sess.stream) {
+  if (!sess) return true
+  if (sess.telnet) {
+    try { sess.telnet.resize(cols, rows) } catch { /* ignore */ }
+  } else if (sess.stream) {
     try { sess.stream.setWindow(rows, cols, 0, 0) } catch { /* ignore */ }
   }
   return true
@@ -911,7 +975,7 @@ ipcMain.handle("terminal:close", async (event, sessionId: string) => {
 
 ipcMain.handle("terminal:claim", async (event, sessionId: string) => {
   const sess = terminalSessions.get(sessionId)
-  if (!sess || !sess.stream) return { success: false as const, scrollback: '' }
+  if (!sess || (!sess.stream && !sess.telnet)) return { success: false as const, scrollback: '' }
   sess.ownerWebContentsId = event.sender.id
   const scrollback = takeTerminalScrollback(sessionId)
   return { success: true as const, scrollback }
@@ -951,8 +1015,8 @@ ipcMain.handle("terminal:pop-out", async (_event, serverId: string, scrollback?:
   const servers = readServers()
   const server = servers.find(s => s.id === serverId)
   const title = server
-    ? `SSH — ${server.name}`
-    : 'SSH Terminal'
+    ? `${protocolLabel(server.protocol)} — ${server.name}`
+    : 'Terminal'
 
   const win = createTerminalPopoutWindow(serverId, entry.sessionId, title)
   terminalPopouts.set(serverId, {

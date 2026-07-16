@@ -6,6 +6,7 @@ import type {
   TransferSessionFilter,
   TransferStatusFilter,
 } from '@shared/types'
+import { isTerminalProtocol } from '@shared/types'
 import { APP_TRANSFER_SESSION_ID, useTransferStore } from '../../store/transferStore'
 import TransferJobRow from './TransferJobRow'
 
@@ -39,7 +40,7 @@ const TransfersPage: React.FC<TransfersPageProps> = ({ servers, onBack }) => {
   const [sessionFilter, setSessionFilter] = useState<TransferSessionFilter>('this')
 
   const serverOptions = useMemo(() => {
-    const fileServers = servers.filter(s => s.protocol !== 'ssh' && s.protocol !== 'rdp')
+    const fileServers = servers.filter(s => !isTerminalProtocol(s.protocol) && s.protocol !== 'rdp')
     const ids = new Set(transfers.map(t => t.serverId))
     const fromJobs = transfers.reduce<{ id: string; name: string }[]>((acc, t) => {
       if (!acc.some(s => s.id === t.serverId)) {

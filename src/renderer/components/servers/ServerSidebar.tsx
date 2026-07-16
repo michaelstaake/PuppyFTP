@@ -8,12 +8,13 @@ import {
   Category,
   UNCATEGORIZED_ID,
   defaultPortForProtocol,
+  isTerminalProtocol,
   protocolLabel,
 } from '@shared/types'
 import { Plus, Trash2, Terminal, ArrowLeftRight, Monitor, ChevronDown, ChevronRight, KeyRound, Pencil } from 'lucide-react'
 
 function ServerTypeIcon({ protocol }: { protocol: Protocol }) {
-  if (protocol === 'ssh') {
+  if (isTerminalProtocol(protocol)) {
     return <Terminal className="h-4 w-4 flex-shrink-0" aria-hidden />
   }
   if (protocol === 'rdp') {
@@ -46,6 +47,11 @@ const FILE_TRANSFER_PROTOCOLS: { value: Protocol; label: string }[] = [
   { value: 'ftp', label: 'FTP (insecure)' },
 ]
 
+const TERMINAL_PROTOCOLS: { value: Protocol; label: string }[] = [
+  { value: 'ssh', label: 'SSH' },
+  { value: 'telnet', label: 'Telnet (insecure)' },
+]
+
 const emptyForm = {
   connectionType: '' as ConnectionType | '',
   name: '',
@@ -68,8 +74,11 @@ function resolveFormPort(port: number | '', protocol: Protocol): number {
 }
 
 function formFromServer(server: Server) {
-  const connectionType: ConnectionType =
-    server.protocol === 'ssh' ? 'terminal' : server.protocol === 'rdp' ? 'desktop' : 'file'
+  const connectionType: ConnectionType = isTerminalProtocol(server.protocol)
+    ? 'terminal'
+    : server.protocol === 'rdp'
+      ? 'desktop'
+      : 'file'
   return {
     connectionType,
     name: server.name,
@@ -215,7 +224,7 @@ const ServerSidebar: React.FC<ServerSidebarProps> = ({
         protocol,
         port: keepCustom ? s.port : defaultPortForProtocol(protocol),
         authMethod:
-          connectionType === 'terminal' || protocol === 'sftp' ? s.authMethod : 'password',
+          protocol === 'ssh' || protocol === 'sftp' ? s.authMethod : 'password',
         keyId:
           connectionType === 'file' && protocol !== 'sftp'
             ? ''
@@ -238,6 +247,7 @@ const ServerSidebar: React.FC<ServerSidebarProps> = ({
         port: keepCustom ? s.port : defaultPortForProtocol(protocol),
         authMethod: supportsKey ? s.authMethod : 'password',
         keyId: supportsKey ? s.keyId : '',
+        password: protocol === 'telnet' ? '' : s.password,
       }
     })
   }
@@ -249,6 +259,17 @@ const ServerSidebar: React.FC<ServerSidebarProps> = ({
 
     const selectedKey = authKeys.find(k => k.id === newServer.keyId)
     const osSuggestion = newServer.lastKnownOs.trim() || undefined
+
+    const isTelnet = newServer.protocol === 'telnet'
+    const authMethod = isTelnet ? 'password' : newServer.authMethod
+    const password = isTelnet
+      ? undefined
+      : authMethod === 'password'
+        ? newServer.password || (editingServerId ? servers.find(s => s.id === editingServerId)?.password : undefined)
+        : undefined
+    const keyId = !isTelnet && authMethod === 'privateKey' ? newServer.keyId || undefined : undefined
+    const privateKeyPath = keyId ? selectedKey?.privateKeyPath : undefined
+    const passphrase = keyId ? selectedKey?.passphrase : undefined
 
     if (editingServerId) {
       const existing = servers.find(s => s.id === editingServerId)
@@ -265,16 +286,15 @@ const ServerSidebar: React.FC<ServerSidebarProps> = ({
                 username: newServer.username,
                 domain: newServer.protocol === 'rdp' ? newServer.domain || undefined : undefined,
                 categoryId: hasCustomCategories ? newServer.categoryId : s.categoryId,
-                authMethod: newServer.authMethod,
-                password:
-                  newServer.authMethod === 'password'
+                authMethod,
+                password: isTelnet
+                  ? undefined
+                  : authMethod === 'password'
                     ? newServer.password || s.password
                     : undefined,
-                keyId: newServer.authMethod === 'privateKey' ? newServer.keyId || undefined : undefined,
-                privateKeyPath:
-                  newServer.authMethod === 'privateKey' ? selectedKey?.privateKeyPath : undefined,
-                passphrase:
-                  newServer.authMethod === 'privateKey' ? selectedKey?.passphrase : undefined,
+                keyId,
+                privateKeyPath,
+                passphrase,
                 lastKnownOs: osSuggestion,
                 allowInvalidCertificate: newServer.allowInvalidCertificate,
               }
@@ -290,13 +310,11 @@ const ServerSidebar: React.FC<ServerSidebarProps> = ({
         username: newServer.username,
         domain: newServer.protocol === 'rdp' ? newServer.domain || undefined : undefined,
         categoryId: hasCustomCategories ? newServer.categoryId : UNCATEGORIZED_ID,
-        authMethod: newServer.authMethod,
-        password: newServer.authMethod === 'password' ? newServer.password || undefined : undefined,
-        keyId: newServer.authMethod === 'privateKey' ? newServer.keyId || undefined : undefined,
-        privateKeyPath:
-          newServer.authMethod === 'privateKey' ? selectedKey?.privateKeyPath : undefined,
-        passphrase:
-          newServer.authMethod === 'privateKey' ? selectedKey?.passphrase : undefined,
+        authMethod,
+        password,
+        keyId,
+        privateKeyPath,
+        passphrase,
         lastKnownOs: osSuggestion,
         allowInvalidCertificate: newServer.allowInvalidCertificate,
       })
@@ -456,6 +474,7 @@ const ServerSidebar: React.FC<ServerSidebarProps> = ({
   }
 
   const supportsKeyAuth = newServer.protocol === 'ssh' || newServer.protocol === 'sftp'
+  const isTelnetProtocol = newServer.protocol === 'telnet'
   const needsKey = supportsKeyAuth && newServer.authMethod === 'privateKey'
   const canSubmit =
     !!newServer.connectionType &&
@@ -919,10 +938,14 @@ const ServerSidebar: React.FC<ServerSidebarProps> = ({
                     {newServer.connectionType === 'terminal' ? (
                       <select
                         className="bg-background border border-border rounded px-3 py-1.5 text-sm"
-                        value="ssh"
-                        disabled
+                        value={newServer.protocol}
+                        onChange={e => setProtocol(e.target.value as Protocol)}
                       >
-                        <option value="ssh">SSH</option>
+                        {TERMINAL_PROTOCOLS.map(p => (
+                          <option key={p.value} value={p.value}>
+                            {p.label}
+                          </option>
+                        ))}
                       </select>
                     ) : newServer.connectionType === 'desktop' ? (
                       <select
@@ -1030,6 +1053,7 @@ const ServerSidebar: React.FC<ServerSidebarProps> = ({
                     </div>
                   )}
 
+                  {!isTelnetProtocol && (
                   <div>
                     <label className="text-xs text-muted-foreground mb-1.5 block">
                       Authentication
@@ -1108,6 +1132,7 @@ const ServerSidebar: React.FC<ServerSidebarProps> = ({
                       </div>
                     )}
                   </div>
+                  )}
                 </>
               )}
 

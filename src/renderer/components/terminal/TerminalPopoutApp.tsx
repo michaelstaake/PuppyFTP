@@ -36,7 +36,7 @@ const TerminalPopoutApp: React.FC<TerminalPopoutAppProps> = ({ serverId, session
           return
         }
         setServer(match)
-        document.title = `SSH — ${match.name}`
+        document.title = `${protocolLabel(match.protocol)} — ${match.name}`
       } catch (e) {
         if (!cancelled) setError(String(e))
       }

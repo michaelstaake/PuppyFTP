@@ -1,4 +1,4 @@
-export type Protocol = 'ftp' | 'ftps' | 'ftps-implicit' | 'sftp' | 'ssh' | 'rdp'
+export type Protocol = 'ftp' | 'ftps' | 'ftps-implicit' | 'sftp' | 'ssh' | 'telnet' | 'rdp'
 
 export type ConnectionType = 'terminal' | 'file' | 'desktop'
 
@@ -6,6 +6,10 @@ export type AuthMethod = 'password' | 'privateKey'
 
 /** UI / AI connection lifecycle for a server session. */
 export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'lost' | 'failed'
+
+export function isTerminalProtocol(p: Protocol): boolean {
+  return p === 'ssh' || p === 'telnet'
+}
 
 export function defaultPortForProtocol(protocol: Protocol): number {
   switch (protocol) {
@@ -16,6 +20,8 @@ export function defaultPortForProtocol(protocol: Protocol): number {
       return 21
     case 'rdp':
       return 3389
+    case 'telnet':
+      return 23
     case 'sftp':
     case 'ssh':
     default:
@@ -29,6 +35,8 @@ export function protocolLabel(protocol: Protocol): string {
       return 'SFTP'
     case 'ssh':
       return 'SSH'
+    case 'telnet':
+      return 'Telnet'
     case 'rdp':
       return 'RDP'
     case 'ftp':
