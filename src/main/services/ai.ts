@@ -354,6 +354,24 @@ export async function listAIModels(ai: Pick<AIConfig, 'baseURL' | 'apiKey'>): Pr
   return ids.sort((a, b) => a.localeCompare(b))
 }
 
+/** Smoke-test chat completions with the given base URL / key / model. */
+export async function testAIConfiguration(
+  ai: Pick<AIConfig, 'baseURL' | 'apiKey' | 'model'>
+): Promise<string> {
+  const client = createClient({
+    enabled: true,
+    baseURL: ai.baseURL,
+    model: ai.model,
+    apiKey: ai.apiKey,
+  })
+  return streamCompletion(
+    client,
+    ai.model.trim(),
+    [{ role: 'user', content: 'Reply with a single word: OK' }],
+    () => {}
+  )
+}
+
 async function streamCompletion(
   client: OpenAI,
   model: string,

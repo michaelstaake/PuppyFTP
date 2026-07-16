@@ -44,7 +44,7 @@ Note: As we have not implemented code signing, you may receive warnings from you
 
 ## AI Features
 
-PuppyFTP must be connected to an OpenAI-compatible endpoint, whether running on your PC, on a self-hosted AI server, or cloud API. For your convenience, we have some presets that you can access by typing / in the Base URL input field.
+To use AI features, PuppyFTP must be connected to an OpenAI-compatible endpoint, whether running on your PC, on a self-hosted AI server, or cloud API. For your convenience, we have some presets that you can access by typing / in the Base URL input field.
 
 - LM Studio
 - LmPanel

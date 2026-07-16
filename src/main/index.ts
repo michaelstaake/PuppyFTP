@@ -11,6 +11,7 @@ import {
   askAI,
   buildTreeSummaryFromRows,
   listAIModels,
+  testAIConfiguration,
   normalizeContextLength,
   DEFAULT_CONTEXT_LENGTH,
   sanitizeServerForAI,
@@ -665,6 +666,24 @@ ipcMain.handle('ai:list-models', async (_, payload?: { baseURL?: string; apiKey?
     return { success: false as const, models: [] as string[], error: message }
   }
 })
+
+ipcMain.handle(
+  'ai:test',
+  async (_, payload?: { baseURL?: string; apiKey?: string; model?: string }) => {
+    const settings = readJsonSync(SETTINGS_PATH, DEFAULT_SETTINGS)
+    const ai = normalizeAISettings(settings.ai)
+    const baseURL = (payload?.baseURL ?? ai.baseURL ?? '').trim()
+    const apiKey = (payload?.apiKey ?? ai.apiKey ?? '').trim()
+    const model = (payload?.model ?? ai.model ?? '').trim()
+    try {
+      const response = await testAIConfiguration({ baseURL, apiKey, model })
+      return { success: true as const, response }
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : String(e)
+      return { success: false as const, error: message }
+    }
+  }
+)
 
 ipcMain.handle(
   'ai:ask',

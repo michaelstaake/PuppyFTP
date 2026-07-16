@@ -77,6 +77,11 @@ export type ElectronAPI = {
     baseURL?: string,
     apiKey?: string
   ) => Promise<{ success: boolean; models: string[]; error?: string }>
+  testAIConfiguration: (
+    baseURL?: string,
+    apiKey?: string,
+    model?: string
+  ) => Promise<{ success: boolean; response?: string; error?: string }>
   respondAICommandApproval: (requestId: string, approved: boolean) => Promise<boolean>
   getAISessions: () => Promise<AISessionsStore>
   saveAISessions: (store: AISessionsStore) => Promise<boolean>

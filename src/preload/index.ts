@@ -111,6 +111,12 @@ const api: ElectronAPI = {
     apiKey?: string
   ): Promise<{ success: boolean; models: string[]; error?: string }> =>
     ipcRenderer.invoke('ai:list-models', { baseURL, apiKey }),
+  testAIConfiguration: (
+    baseURL?: string,
+    apiKey?: string,
+    model?: string
+  ): Promise<{ success: boolean; response?: string; error?: string }> =>
+    ipcRenderer.invoke('ai:test', { baseURL, apiKey, model }),
   respondAICommandApproval: (requestId: string, approved: boolean): Promise<boolean> =>
     ipcRenderer.invoke('ai:command-approval-response', { requestId, approved }),
   getAISessions: (): Promise<AISessionsStore> =>

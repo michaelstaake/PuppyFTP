@@ -13,6 +13,7 @@ import {
   ArrowLeft,
   Bot,
   KeyRound,
+  Loader2,
   Monitor,
   Moon,
   Plus,
@@ -88,6 +89,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   const [modelsError, setModelsError] = useState('')
   const [baseUrlFocused, setBaseUrlFocused] = useState(false)
   const [modelFocused, setModelFocused] = useState(false)
+  const [testStatus, setTestStatus] = useState<'idle' | 'running' | 'success' | 'error'>('idle')
+  const [testMessage, setTestMessage] = useState('')
   const generalRef = useRef<HTMLDivElement>(null)
   const aiRef = useRef<HTMLDivElement>(null)
   const authRef = useRef<HTMLDivElement>(null)
@@ -96,6 +99,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   const flashTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const modelsQueryRef = useRef(0)
   const modelsDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const testQueryRef = useRef(0)
 
   const sectionRef = (id: SettingsSection) => {
     if (id === 'general') return generalRef.current
@@ -237,6 +241,53 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
     modelsDebounceRef.current = setTimeout(() => {
       void queryModels(baseURL, apiKey)
     }, 400)
+  }
+
+  const testAIConfig = async () => {
+    const { baseURL, apiKey, model } = settingsRef.current.ai
+    const trimmedBase = (baseURL ?? '').trim()
+    const trimmedModel = (model ?? '').trim()
+
+    if (!trimmedBase || isSlashCommandMode(trimmedBase)) {
+      setTestStatus('error')
+      setTestMessage('Enter a valid base URL before testing.')
+      return
+    }
+    if (!trimmedModel || isSlashCommandMode(trimmedModel)) {
+      setTestStatus('error')
+      setTestMessage('Enter a valid model before testing.')
+      return
+    }
+    if (!window.electronAPI?.testAIConfiguration) {
+      setTestStatus('error')
+      setTestMessage('AI test is not available in this environment.')
+      return
+    }
+
+    const queryId = ++testQueryRef.current
+    setTestStatus('running')
+    setTestMessage('')
+
+    try {
+      await persistCurrentIfAiChanged()
+      const result = await window.electronAPI.testAIConfiguration(
+        trimmedBase,
+        apiKey ?? '',
+        trimmedModel
+      )
+      if (queryId !== testQueryRef.current) return
+      if (result.success) {
+        setTestStatus('success')
+        setTestMessage('AI configuration works.')
+      } else {
+        setTestStatus('error')
+        setTestMessage(result.error || 'Unknown error')
+      }
+    } catch (e: unknown) {
+      if (queryId !== testQueryRef.current) return
+      setTestStatus('error')
+      setTestMessage(e instanceof Error ? e.message : String(e))
+    }
   }
 
   const applyBaseUrl = (url: string, opts?: { persist?: boolean; query?: boolean }) => {
@@ -844,6 +895,27 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                       )
                     })()}
                 </div>
+              </div>
+              <div className="pt-1 space-y-2">
+                <button
+                  type="button"
+                  onClick={() => void testAIConfig()}
+                  disabled={testStatus === 'running'}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded bg-primary text-primary-foreground text-sm disabled:opacity-50"
+                >
+                  {testStatus === 'running' && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  {testStatus === 'running' ? 'Testing…' : 'Test AI configuration'}
+                </button>
+                {testStatus === 'success' && (
+                  <p className="text-sm text-emerald-500" role="status" aria-live="polite">
+                    {testMessage}
+                  </p>
+                )}
+                {testStatus === 'error' && (
+                  <p className="text-sm text-red-400" role="alert" aria-live="assertive">
+                    <span className="font-medium">Error:</span> {testMessage}
+                  </p>
+                )}
               </div>
             </div>
           </section>
