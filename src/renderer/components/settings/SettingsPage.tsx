@@ -138,7 +138,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
     let cancelled = false
     const loadInfo = async () => {
       if (!window.electronAPI?.getAppInfo) {
-        setAppInfo({ version: '1.1.0', buildDate: new Date().toISOString().slice(0, 10) })
+        setAppInfo({ version: '1.2.0', buildDate: new Date().toISOString().slice(0, 10) })
         return
       }
       try {
@@ -146,7 +146,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         if (!cancelled) setAppInfo(info)
       } catch {
         if (!cancelled) {
-          setAppInfo({ version: '1.1.0', buildDate: new Date().toISOString().slice(0, 10) })
+          setAppInfo({ version: '1.2.0', buildDate: new Date().toISOString().slice(0, 10) })
         }
       }
     }
