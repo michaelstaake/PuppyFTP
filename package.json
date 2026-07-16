@@ -1,9 +1,13 @@
 {
   "name": "puppyftp",
-  "version": "1.0.0",
-  "description": "The cute, fast, AI-powered open-source FTP + SSH/SFTP desktop client",
+  "version": "1.0.1",
+  "description": "PuppyFTP — cute, fast, AI-powered FTP + SSH/SFTP desktop client",
   "main": "out/main/index.js",
-  "author": "PuppyFTP Contributors",
+  "author": {
+    "name": "Michael Staake",
+    "email": "michael@staake.ai"
+  },
+  "desktopName": "com.puppyftp.app.desktop",
   "license": "GPL-3.0",
   "private": true,
   "type": "module",
@@ -76,7 +80,16 @@
         },
         "portable"
       ],
-      "icon": "build/icon.ico"
+      "icon": "build/icon.ico",
+      "executableName": "PuppyFTP"
+    },
+    "nsis": {
+      "shortcutName": "PuppyFTP",
+      "uninstallDisplayName": "PuppyFTP",
+      "artifactName": "PuppyFTP-Setup-${version}.${ext}"
+    },
+    "portable": {
+      "artifactName": "PuppyFTP-Portable-${version}.${ext}"
     },
     "mac": {
       "target": [
@@ -90,7 +103,9 @@
         "AppImage",
         "deb"
       ],
-      "icon": "build/icon.png"
+      "icon": "build/icon.png",
+      "category": "Network",
+      "syncDesktopName": true
     },
     "publish": {
       "provider": "github",
