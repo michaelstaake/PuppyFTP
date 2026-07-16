@@ -1,13 +1,12 @@
 {
   "name": "puppyftp",
   "version": "1.0.3",
-  "description": "PuppyFTP — cute, fast, AI-powered FTP + SSH/SFTP desktop client",
+  "description": "PuppyFTP — cute, fast, AI-powered FTP + SSH/SFTP + RDP desktop client (Windows)",
   "main": "out/main/index.js",
   "author": {
     "name": "Michael Staake",
     "email": "michael@staake.ai"
   },
-  "desktopName": "com.puppyftp.app.desktop",
   "license": "GPL-3.0",
   "private": true,
   "type": "module",
@@ -15,11 +14,10 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build && node --input-type=module -e \"import {cpSync} from \\\"fs\\\"; try { cpSync(\\\"public\\\", \\\"out/renderer\\\", {recursive: true, force: true}); console.log(\\\"public assets copied\\\"); } catch(e){} \"",
     "preview": "electron-vite preview",
-    "postinstall": "electron-builder install-app-deps",
+    "postinstall": "node scripts/rebuild-natives.mjs",
     "build:win": "electron-builder --win",
-    "build:mac": "electron-builder --mac",
-    "build:linux": "electron-builder --linux",
     "package": "npm run build && electron-builder",
+    "rebuild:rdp": "node scripts/rebuild-natives.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --report-unused-disable-directives --max-warnings 0",
     "lint:fix": "eslint . --fix"
@@ -33,6 +31,7 @@
     "better-sqlite3": "^12.11.1",
     "lucide-react": "^0.400.0",
     "openai": "^6.47.0",
+    "puppyftp-rdp-host": "file:native/rdp-host",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "ssh2": "^1.15.0",
@@ -41,6 +40,7 @@
     "zustand": "^4.5.4"
   },
   "devDependencies": {
+    "@electron/rebuild": "^4.0.1",
     "@eslint/js": "^10.0.1",
     "@types/better-sqlite3": "^7.6.12",
     "@types/node": "^22.0.0",
@@ -94,29 +94,14 @@
     "portable": {
       "artifactName": "PuppyFTP-Portable-${version}.${ext}"
     },
-    "mac": {
-      "target": [
-        "dmg",
-        "zip"
-      ],
-      "icon": "build/icon.icns"
-    },
-    "linux": {
-      "target": [
-        "AppImage",
-        "deb"
-      ],
-      "icon": "build/icon.png",
-      "category": "Network",
-      "syncDesktopName": true
-    },
     "publish": {
       "provider": "github",
       "owner": "michaelstaake",
       "repo": "PuppyFTP"
     },
     "asarUnpack": [
-      "**/*.node"
+      "**/*.node",
+      "**/puppyftp-rdp-host/**"
     ]
   },
   "repository": {

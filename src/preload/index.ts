@@ -109,6 +109,25 @@ const api: ElectronAPI = {
     return () => ipcRenderer.removeListener('terminal:popout-state', listener)
   },
 
+  rdpAvailable: (): Promise<{ available: boolean; error?: string | null }> =>
+    ipcRenderer.invoke('rdp:available'),
+  createRdpSession: (
+    server: Server,
+    bounds: { x: number; y: number; width: number; height: number }
+  ): Promise<{ success: boolean; sessionId?: string; error?: string; reused?: boolean }> =>
+    ipcRenderer.invoke('rdp:create', server, bounds),
+  setRdpBounds: (
+    sessionId: string,
+    bounds: { x: number; y: number; width: number; height: number }
+  ): Promise<boolean> => ipcRenderer.invoke('rdp:set-bounds', sessionId, bounds),
+  setRdpVisible: (sessionId: string, visible: boolean): Promise<boolean> =>
+    ipcRenderer.invoke('rdp:set-visible', sessionId, visible),
+  closeRdpSession: (sessionId: string): Promise<boolean> => ipcRenderer.invoke('rdp:close', sessionId),
+  closeRdpForServer: (serverId: string): Promise<boolean> =>
+    ipcRenderer.invoke('rdp:close-for-server', serverId),
+  rdpSessionAlive: (sessionId: string): Promise<boolean> =>
+    ipcRenderer.invoke('rdp:is-alive', sessionId),
+
   // Explorer Phase 3 + 4
   listLocal: (dirPath: string): Promise<FileEntry[]> => ipcRenderer.invoke('fs:list-local', dirPath),
   listRemote: (serverId: string, dirPath: string): Promise<FileEntry[] | null> => ipcRenderer.invoke('fs:list-remote', serverId, dirPath),

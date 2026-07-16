@@ -10,6 +10,11 @@ export default defineConfig({
     define: {
       __BUILD_DATE__: JSON.stringify(buildDate),
     },
+    build: {
+      rollupOptions: {
+        external: ['puppyftp-rdp-host'],
+      },
+    },
   },
   // Sandboxed preload cannot load ESM `import` — bundle as a single CJS file.
   // Do not externalize deps: sandbox only has a limited polyfilled require().

@@ -4,6 +4,7 @@ import { readFileSync, writeFileSync, mkdirSync } from 'fs'
 import { Client } from 'ssh2'
 import { Server, Category, AppSettings, ResolvedTheme, ThemePreference, AISessionsStore, TransferHistoryStore, DEFAULT_CONNECTION_TIMEOUT, normalizeConnectionTimeout, DEFAULT_CATEGORIES } from '../shared/types'
 import { registerFsHandlers, closeAllRemoteClients, close as closeRemoteCache } from './fs-handlers'
+import { registerRdpHandlers, closeAllRdpSessions } from './rdp-handlers'
 import { getSummaryEntries } from './services/remote-cache'
 import { configureServersStore, readServers, writeServers, updateServerFields } from './services/servers-store'
 import { createHostKeyVerifier } from './services/host-key'
@@ -1234,6 +1235,7 @@ if (gotTheLock) {
     // Register Phase 3 FS handlers (see threat-model comment in fs-handlers.ts).
     const mainWindowRef = { current: mainWindow }
     registerFsHandlers(userDataPath, mainWindowRef)
+    registerRdpHandlers(() => mainWindow)
 
     nativeTheme.on('updated', () => {
       const preference = normalizeTheme(readJsonSync(SETTINGS_PATH, DEFAULT_SETTINGS).theme)
@@ -1251,7 +1253,7 @@ if (gotTheLock) {
 
 app.on('window-all-closed', () => {
   if (!gotTheLock) return
-  if (process.platform !== 'darwin') app.quit()
+  app.quit()
 })
 
 app.on('before-quit', () => {
@@ -1262,6 +1264,11 @@ app.on('before-quit', () => {
   }
   for (const sessionId of [...terminalSessions.keys()]) {
     endTerminalSession(sessionId)
+  }
+  try {
+    closeAllRdpSessions()
+  } catch (e) {
+    console.error('[PuppyFTP] Failed to close RDP sessions on quit', e)
   }
   try {
     closeAllRemoteClients()

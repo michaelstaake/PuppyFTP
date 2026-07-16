@@ -39,7 +39,7 @@ const TransfersPage: React.FC<TransfersPageProps> = ({ servers, onBack }) => {
   const [sessionFilter, setSessionFilter] = useState<TransferSessionFilter>('this')
 
   const serverOptions = useMemo(() => {
-    const fileServers = servers.filter(s => s.protocol !== 'ssh')
+    const fileServers = servers.filter(s => s.protocol !== 'ssh' && s.protocol !== 'rdp')
     const ids = new Set(transfers.map(t => t.serverId))
     const fromJobs = transfers.reduce<{ id: string; name: string }[]>((acc, t) => {
       if (!acc.some(s => s.id === t.serverId)) {

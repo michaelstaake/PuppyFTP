@@ -78,11 +78,7 @@ const TerminalPopoutApp: React.FC<TerminalPopoutAppProps> = ({ serverId, session
     )
   }
 
-  const platform = typeof window !== 'undefined' ? window.electronAPI?.platform : undefined
-  const headerPadStyle: React.CSSProperties =
-    platform === 'darwin'
-      ? { paddingLeft: 78, paddingRight: 16 }
-      : { paddingLeft: 16, paddingRight: 148 }
+  const headerPadStyle: React.CSSProperties = { paddingLeft: 16, paddingRight: 148 }
 
   return (
     <div className="h-screen w-screen flex flex-col bg-surface overflow-hidden">

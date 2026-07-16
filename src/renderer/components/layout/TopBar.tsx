@@ -9,12 +9,8 @@ interface TopBarProps {
 
 const TopBar: React.FC<TopBarProps> = ({ onOpenSettings, onOpenTransfers }) => {
   const [queueOpen, setQueueOpen] = useState(false)
-  const platform = typeof window !== 'undefined' ? window.electronAPI?.platform : undefined
-  // titleBarOverlay puts window controls on the right (Win/Linux) or traffic lights on the left (macOS)
-  const barStyle: React.CSSProperties =
-    platform === 'darwin'
-      ? { paddingLeft: 78, paddingRight: 16 }
-      : { paddingLeft: 16, paddingRight: 148 }
+  // titleBarOverlay puts window controls on the right
+  const barStyle: React.CSSProperties = { paddingLeft: 16, paddingRight: 148 }
 
   const closeQueue = useCallback(() => setQueueOpen(false), [])
 

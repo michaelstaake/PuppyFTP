@@ -67,6 +67,20 @@ export type ElectronAPI = {
     }) => void
   ) => () => void
 
+  rdpAvailable: () => Promise<{ available: boolean; error?: string | null }>
+  createRdpSession: (
+    server: Server,
+    bounds: { x: number; y: number; width: number; height: number }
+  ) => Promise<{ success: boolean; sessionId?: string; error?: string; reused?: boolean }>
+  setRdpBounds: (
+    sessionId: string,
+    bounds: { x: number; y: number; width: number; height: number }
+  ) => Promise<boolean>
+  setRdpVisible: (sessionId: string, visible: boolean) => Promise<boolean>
+  closeRdpSession: (sessionId: string) => Promise<boolean>
+  closeRdpForServer: (serverId: string) => Promise<boolean>
+  rdpSessionAlive: (sessionId: string) => Promise<boolean>
+
   listLocal: (dirPath: string) => Promise<FileEntry[]>
   listRemote: (serverId: string, dirPath: string) => Promise<FileEntry[] | null>
   mkdirLocal: (dirPath: string) => Promise<boolean>

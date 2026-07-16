@@ -14,6 +14,7 @@ import {
 import XTerm, { XTermHandle } from '../terminal/XTerm'
 import DualPaneExplorer, { DualPaneExplorerHandle } from '../explorer/DualPaneExplorer'
 import TerminalActionsMenu, { TerminalMenuAnchor } from '../terminal/TerminalActionsMenu'
+import RdpViewer from '../rdp/RdpViewer'
 
 interface MainAreaProps {
   server: Server | null
@@ -38,6 +39,8 @@ interface MainAreaProps {
   onSessionConnected: (serverId: string) => void
   onSessionFailed: (serverId: string) => void
   onSessionClosed: (serverId: string) => void
+  /** Intentional end (e.g. user closed the RDP window) — back to disconnected. */
+  onSessionEnded: (serverId: string) => void
 }
 
 const MainArea: React.FC<MainAreaProps> = ({
@@ -61,6 +64,7 @@ const MainArea: React.FC<MainAreaProps> = ({
   onSessionConnected,
   onSessionFailed,
   onSessionClosed,
+  onSessionEnded,
 }) => {
   const explorerRef = React.useRef<DualPaneExplorerHandle>(null)
   const xtermRefs = React.useRef<Record<string, XTermHandle | null>>({})
@@ -68,6 +72,7 @@ const MainArea: React.FC<MainAreaProps> = ({
   const [explorerStatus, setExplorerStatus] = React.useState({ loading: false, isExploring: false })
   const [appVersion, setAppVersion] = React.useState<string | null>(null)
   const [terminalMenu, setTerminalMenu] = React.useState<TerminalMenuAnchor | null>(null)
+  const [rdpConnectError, setRdpConnectError] = React.useState<string | null>(null)
 
   const handleExplorerStatus = React.useCallback((status: { loading: boolean; isExploring: boolean }) => {
     setExplorerStatus(status)
@@ -121,6 +126,10 @@ const MainArea: React.FC<MainAreaProps> = ({
     })
   }, [server, poppedOutByServerId, onPopOutError])
 
+  React.useEffect(() => {
+    if (!isConnecting && !isConnectionFailed) setRdpConnectError(null)
+  }, [isConnecting, isConnectionFailed, server?.id])
+
   if (!server) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center bg-surface text-center p-8">
@@ -144,9 +153,12 @@ const MainArea: React.FC<MainAreaProps> = ({
     server.protocol === 'ftps-implicit'
 
   const isSshTerminal = server.protocol === 'ssh'
+  const isRdpDesktop = server.protocol === 'rdp'
   const isPoppedOut = !!poppedOutByServerId[server.id]
   const sessionOpen = isConnected || isConnecting || isConnectionLost || isConnectionFailed
-  const blockContent = isConnecting || isConnectionLost || isConnectionFailed
+  // RDP uses an external mstsc window + its own status UI — don't blank the pane.
+  const blockContent =
+    !isRdpDesktop && (isConnecting || isConnectionLost || isConnectionFailed)
 
   return (
     <div className="flex-1 flex flex-col bg-surface min-h-0">
@@ -272,7 +284,7 @@ const MainArea: React.FC<MainAreaProps> = ({
           </button>
         )}
 
-        {isConnecting && (
+        {isConnecting && !isRdpDesktop && (
           <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-surface text-foreground">
             <Loader2 className="h-8 w-8 text-muted-foreground animate-spin" aria-hidden />
             <div className="text-sm font-medium">Connecting…</div>
@@ -282,10 +294,11 @@ const MainArea: React.FC<MainAreaProps> = ({
         {isConnectionFailed && (
           <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-4 bg-surface text-foreground">
             <WifiOff className="h-8 w-8 text-red-500 opacity-90" aria-hidden />
-            <div className="text-center px-6">
+            <div className="text-center px-6 max-w-lg">
               <div className="text-sm font-medium">Unable to connect</div>
-              <div className="text-xs text-muted-foreground mt-1">
-                Could not reach this server. Check the host, port, and credentials, then try again.
+              <div className="text-xs text-muted-foreground mt-1 whitespace-pre-wrap">
+                {rdpConnectError ||
+                  'Could not reach this server. Check the host, port, and credentials, then try again.'}
               </div>
             </div>
             <button
@@ -339,6 +352,7 @@ const MainArea: React.FC<MainAreaProps> = ({
         {connectedServers.map(s => {
           const isActive = isConnected && s.id === server.id
           const sIsTerminal = s.protocol === 'ssh'
+          const sIsRdp = s.protocol === 'rdp'
           const sIsFileTransfer =
             s.protocol === 'sftp' ||
             s.protocol === 'ftp' ||
@@ -372,6 +386,21 @@ const MainArea: React.FC<MainAreaProps> = ({
                   }}
                   onConnectFailed={() => onSessionFailed(s.id)}
                   onDisconnected={() => onSessionClosed(s.id)}
+                />
+              )}
+              {sIsRdp && (
+                <RdpViewer
+                  server={s}
+                  active={isActive && isConnected}
+                  onConnected={() => {
+                    setRdpConnectError(null)
+                    onSessionConnected(s.id)
+                  }}
+                  onConnectFailed={message => {
+                    if (message) setRdpConnectError(message)
+                    onSessionFailed(s.id)
+                  }}
+                  onDisconnected={() => onSessionEnded(s.id)}
                 />
               )}
               {sIsFileTransfer && (

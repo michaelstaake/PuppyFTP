@@ -1,6 +1,6 @@
-export type Protocol = 'ftp' | 'ftps' | 'ftps-implicit' | 'sftp' | 'ssh'
+export type Protocol = 'ftp' | 'ftps' | 'ftps-implicit' | 'sftp' | 'ssh' | 'rdp'
 
-export type ConnectionType = 'terminal' | 'file'
+export type ConnectionType = 'terminal' | 'file' | 'desktop'
 
 export type AuthMethod = 'password' | 'privateKey'
 
@@ -14,6 +14,8 @@ export function defaultPortForProtocol(protocol: Protocol): number {
     case 'ftp':
     case 'ftps':
       return 21
+    case 'rdp':
+      return 3389
     case 'sftp':
     case 'ssh':
     default:
@@ -27,6 +29,8 @@ export function protocolLabel(protocol: Protocol): string {
       return 'SFTP'
     case 'ssh':
       return 'SSH'
+    case 'rdp':
+      return 'RDP'
     case 'ftp':
       return 'FTP'
     case 'ftps':
@@ -55,6 +59,8 @@ export interface Server {
   username: string
   authMethod?: AuthMethod
   password?: string
+  /** RDP domain (optional). */
+  domain?: string
   /** Reference to a saved AuthKey in settings */
   keyId?: string
   privateKeyPath?: string

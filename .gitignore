@@ -14,3 +14,5 @@ typecheck-out.txt
 .env
 .env.*
 tmp-*.cjs
+native/rdp-host/build/
+native/rdp-host/node_modules/

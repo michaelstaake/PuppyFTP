@@ -241,6 +241,11 @@ const App: FC = () => {
       console.warn('close terminal failed', e)
     }
     try {
+      await window.electronAPI?.closeRdpForServer?.(id)
+    } catch (e) {
+      console.warn('close rdp failed', e)
+    }
+    try {
       await window.electronAPI?.disconnectRemote?.(id)
     } catch (e) {
       console.warn('disconnect failed', e)
@@ -266,6 +271,11 @@ const App: FC = () => {
     void (async () => {
       try {
         await window.electronAPI?.closeTerminalForServer?.(id)
+      } catch {
+        /* ignore */
+      }
+      try {
+        await window.electronAPI?.closeRdpForServer?.(id)
       } catch {
         /* ignore */
       }
@@ -945,6 +955,7 @@ const App: FC = () => {
               onSessionConnected={markConnectionEstablished}
               onSessionFailed={markConnectionFailed}
               onSessionClosed={markConnectionLost}
+              onSessionEnded={id => void disconnectServer(id)}
               aiEnabled={aiEnabled}
               aiChatOpen={aiChatOpen}
               onToggleAIChat={toggleAIChat}

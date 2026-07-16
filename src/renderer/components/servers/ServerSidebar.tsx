@@ -10,11 +10,14 @@ import {
   defaultPortForProtocol,
   protocolLabel,
 } from '@shared/types'
-import { Plus, Trash2, Terminal, ArrowLeftRight, ChevronDown, ChevronRight, KeyRound, Pencil } from 'lucide-react'
+import { Plus, Trash2, Terminal, ArrowLeftRight, Monitor, ChevronDown, ChevronRight, KeyRound, Pencil } from 'lucide-react'
 
 function ServerTypeIcon({ protocol }: { protocol: Protocol }) {
   if (protocol === 'ssh') {
     return <Terminal className="h-4 w-4 flex-shrink-0" aria-hidden />
+  }
+  if (protocol === 'rdp') {
+    return <Monitor className="h-4 w-4 flex-shrink-0" aria-hidden />
   }
   return <ArrowLeftRight className="h-4 w-4 flex-shrink-0" aria-hidden />
 }
@@ -51,6 +54,7 @@ const emptyForm = {
   /** Empty string while the user is clearing/retyping; resolved on save. */
   port: 22 as number | '',
   username: '',
+  domain: '',
   categoryId: UNCATEGORIZED_ID,
   authMethod: 'password' as AuthMethod,
   password: '',
@@ -64,7 +68,8 @@ function resolveFormPort(port: number | '', protocol: Protocol): number {
 }
 
 function formFromServer(server: Server) {
-  const connectionType: ConnectionType = server.protocol === 'ssh' ? 'terminal' : 'file'
+  const connectionType: ConnectionType =
+    server.protocol === 'ssh' ? 'terminal' : server.protocol === 'rdp' ? 'desktop' : 'file'
   return {
     connectionType,
     name: server.name,
@@ -72,6 +77,7 @@ function formFromServer(server: Server) {
     host: server.host,
     port: server.port,
     username: server.username || '',
+    domain: server.domain || '',
     categoryId: server.categoryId || UNCATEGORIZED_ID,
     authMethod: (server.authMethod || (server.keyId ? 'privateKey' : 'password')) as AuthMethod,
     password: server.password || '',
@@ -198,7 +204,8 @@ const ServerSidebar: React.FC<ServerSidebarProps> = ({
   }
 
   const setConnectionType = (connectionType: ConnectionType) => {
-    const protocol: Protocol = connectionType === 'terminal' ? 'ssh' : 'sftp'
+    const protocol: Protocol =
+      connectionType === 'terminal' ? 'ssh' : connectionType === 'desktop' ? 'rdp' : 'sftp'
     setNewServer(s => {
       const prevDefault = defaultPortForProtocol(s.protocol)
       const keepCustom = typeof s.port === 'number' && s.port > 0 && s.port !== prevDefault
@@ -209,7 +216,13 @@ const ServerSidebar: React.FC<ServerSidebarProps> = ({
         port: keepCustom ? s.port : defaultPortForProtocol(protocol),
         authMethod:
           connectionType === 'terminal' || protocol === 'sftp' ? s.authMethod : 'password',
-        keyId: connectionType === 'file' && protocol !== 'sftp' ? '' : s.keyId,
+        keyId:
+          connectionType === 'file' && protocol !== 'sftp'
+            ? ''
+            : connectionType === 'desktop'
+              ? ''
+              : s.keyId,
+        domain: connectionType === 'desktop' ? s.domain : '',
       }
     })
   }
@@ -250,6 +263,7 @@ const ServerSidebar: React.FC<ServerSidebarProps> = ({
                 host: newServer.host,
                 port: resolveFormPort(newServer.port, newServer.protocol),
                 username: newServer.username,
+                domain: newServer.protocol === 'rdp' ? newServer.domain || undefined : undefined,
                 categoryId: hasCustomCategories ? newServer.categoryId : s.categoryId,
                 authMethod: newServer.authMethod,
                 password:
@@ -274,6 +288,7 @@ const ServerSidebar: React.FC<ServerSidebarProps> = ({
         host: newServer.host,
         port: resolveFormPort(newServer.port, newServer.protocol),
         username: newServer.username,
+        domain: newServer.protocol === 'rdp' ? newServer.domain || undefined : undefined,
         categoryId: hasCustomCategories ? newServer.categoryId : UNCATEGORIZED_ID,
         authMethod: newServer.authMethod,
         password: newServer.authMethod === 'password' ? newServer.password || undefined : undefined,
@@ -854,7 +869,7 @@ const ServerSidebar: React.FC<ServerSidebarProps> = ({
             <form onSubmit={handleSaveServer} className="space-y-3">
               <div>
                 <label className="text-xs text-muted-foreground mb-1.5 block">Type</label>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-3 gap-2">
                   <button
                     type="button"
                     onClick={() => setConnectionType('terminal')}
@@ -877,6 +892,17 @@ const ServerSidebar: React.FC<ServerSidebarProps> = ({
                   >
                     File Transfer
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => setConnectionType('desktop')}
+                    className={`py-2 rounded border text-sm ${
+                      newServer.connectionType === 'desktop'
+                        ? 'border-accent bg-accent/10 text-accent'
+                        : 'border-border text-muted-foreground'
+                    }`}
+                  >
+                    Desktop
+                  </button>
                 </div>
               </div>
 
@@ -897,6 +923,14 @@ const ServerSidebar: React.FC<ServerSidebarProps> = ({
                         disabled
                       >
                         <option value="ssh">SSH</option>
+                      </select>
+                    ) : newServer.connectionType === 'desktop' ? (
+                      <select
+                        className="bg-background border border-border rounded px-3 py-1.5 text-sm"
+                        value="rdp"
+                        disabled
+                      >
+                        <option value="rdp">RDP</option>
                       </select>
                     ) : (
                       <select
@@ -942,6 +976,14 @@ const ServerSidebar: React.FC<ServerSidebarProps> = ({
                     value={newServer.username}
                     onChange={e => setNewServer(s => ({ ...s, username: e.target.value }))}
                   />
+                  {newServer.connectionType === 'desktop' && (
+                    <input
+                      className="w-full bg-background border border-border rounded px-3 py-1.5 text-sm"
+                      placeholder="Domain (optional)"
+                      value={newServer.domain}
+                      onChange={e => setNewServer(s => ({ ...s, domain: e.target.value }))}
+                    />
+                  )}
                   <input
                     className="w-full bg-background border border-border rounded px-3 py-1.5 text-sm"
                     placeholder="OS, like Ubuntu 26.04"

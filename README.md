@@ -1,13 +1,13 @@
 # PuppyFTP
 
-Opensource, free FTP/SFTP + SSH desktop client with optional AI enhancements.
+Opensource, free FTP/SFTP + SSH + RDP desktop client for Windows with optional AI enhancements.
 
 ## Why PuppyFTP
 
-- Easily manage multiple SSH, FTP, SFTP servers in one modern interface.
+- Easily manage multiple SSH, FTP, SFTP, and RDP servers in one modern interface.
 - Portable JSON configuration for easy backup and sync across multiple PCs.
 - AI assistance that works with local, self-hosted, and API providers that can help you manage your servers and find files.
-- Prebuilt Windows setup and portable images, with support for Linux and MacOS via DIY builds.
+- Prebuilt Windows setup and portable images.
 
 ## Get PuppyFTP
 
@@ -20,24 +20,22 @@ Windows: Download prebuilt images from the [Releases](https://github.com/michael
 
 Windows setup and portable builds are published automatically when a version tag is pushed.
 
-MacOS and Linux are not built by CI, but you can build them from source:
-
 ### Development
 
-Requirements: **Node.js 20+**
+Requirements: **Node.js 20+** on Windows (Visual Studio Build Tools / C++ workload required for the RDP native host).
 
 ```bash
 npm install
 npm run dev
 ```
 
+RDP sessions use the Windows Remote Desktop client (`mstsc`) in a separate window (embedding mstsc inside Electron causes a blank/black display). PuppyFTP tracks the session and can focus or disconnect it.
+
 ### Production
 
 ```bash
 npm run build
 npm run build:win    # Windows setup + portable
-npm run build:mac    # macOS .dmg + .zip
-npm run build:linux  # Linux AppImage + .deb
 ```
 
 Note: As we have not implemented code signing, you may receive warnings from your OS about running unknown programs, or in some cases, false positives from certain AV software. This is expected behavior and is safe to ignore.
