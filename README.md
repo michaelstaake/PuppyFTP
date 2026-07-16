@@ -13,15 +13,14 @@ Cute, fast, AI-powered open-source FTP + SSH/SFTP desktop client.
 
 ## Install / download
 
-Download a prebuilt installer from the [Releases](https://github.com/michaelstaake/PuppyFTP/releases) page:
+Download a prebuilt Windows installer from the [Releases](https://github.com/michaelstaake/PuppyFTP/releases) page:
 
-| Platform | Download |
+| Artifact | Description |
 | --- | --- |
-| Windows | `.exe` installer (NSIS) or portable build |
-| macOS | `.dmg` |
-| Linux | `.AppImage` or `.deb` |
+| `PuppyFTP-Setup-*.exe` | NSIS installer |
+| `PuppyFTP-Portable-*.exe` | Portable build |
 
-Installers are built automatically when a version tag is pushed (for example `v1.0.1`).
+Windows setup and portable builds are published automatically when a version tag is pushed (for example `v1.0.1`). macOS and Linux are not built by CI — build them from source below.
 
 ## Quick start (from source)
 
@@ -36,9 +35,9 @@ Production build:
 
 ```bash
 npm run build
-npm run package
-# or Windows:
-npm run build:win
+npm run build:win    # Windows setup + portable
+npm run build:mac    # macOS .dmg + .zip
+npm run build:linux  # Linux AppImage + .deb
 ```
 
 ## Configuration

@@ -11,18 +11,8 @@ permissions:
 
 jobs:
   build:
-    name: Build (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: windows-latest
-            args: --win
-          - os: macos-latest
-            args: --mac
-          - os: ubuntu-latest
-            args: --linux
+    name: Build (Windows)
+    runs-on: windows-latest
 
     steps:
       - uses: actions/checkout@v6
@@ -39,20 +29,16 @@ jobs:
         run: npm run build
 
       - name: Package installers
-        run: npx electron-builder ${{ matrix.args }} --publish never
+        run: npx electron-builder --win --publish never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v6
         with:
-          name: puppyftp-${{ matrix.os }}
+          name: puppyftp-windows
           path: |
             release/*.exe
-            release/*.dmg
-            release/*.zip
-            release/*.AppImage
-            release/*.deb
             release/*.blockmap
             release/latest*.yml
           if-no-files-found: warn
