@@ -11,8 +11,16 @@ export default defineConfig({
       __BUILD_DATE__: JSON.stringify(buildDate),
     },
   },
+  // Sandboxed preload cannot load ESM `import` — bundle as a single CJS file.
+  // Do not externalize deps: sandbox only has a limited polyfilled require().
   preload: {
-    plugins: [externalizeDepsPlugin()]
+    build: {
+      rollupOptions: {
+        output: {
+          format: 'cjs'
+        }
+      }
+    }
   },
   renderer: {
     base: './',

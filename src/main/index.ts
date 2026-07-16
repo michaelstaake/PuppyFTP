@@ -151,11 +151,13 @@ function writeTransferHistory(store: TransferHistoryStore): void {
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 
-function applyWindowChrome(resolved: ResolvedTheme, preference?: ThemePreference): void {
-  const pref = preference ?? normalizeTheme(readJsonSync(SETTINGS_PATH, DEFAULT_SETTINGS).theme)
-  syncNativeThemeSource(pref)
+function applyWindowChrome(preference: ThemePreference, resolved?: ResolvedTheme): void {
+  // Sync themeSource first so shouldUseDarkColors reflects the real OS preference
+  // when switching from forced light/dark back to system.
+  syncNativeThemeSource(preference)
+  const theme = resolved ?? resolveThemePreference(preference)
   if (!mainWindow || mainWindow.isDestroyed()) return
-  const colors = CHROME[resolved]
+  const colors = CHROME[theme]
   mainWindow.setBackgroundColor(colors.background)
   try {
     mainWindow.setTitleBarOverlay({
@@ -189,8 +191,8 @@ function createWindow(): void {
     autoHideMenuBar: true,
     icon: resolveAppIcon(),
     webPreferences: {
-      // electron-vite emits .mjs for preload when package.json has "type": "module"
-      preload: join(__dirname, '../preload/index.mjs'),
+      // Preload is built as CJS (.cjs) so it can run under sandbox: true
+      preload: join(__dirname, '../preload/index.cjs'),
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
@@ -328,7 +330,7 @@ ipcMain.handle('store:save-settings', (_, settings: AppSettings) => {
     protectServerData: nextProtect,
   }
   writeJsonSync(SETTINGS_PATH, next)
-  applyWindowChrome(resolveThemePreference(next.theme), next.theme)
+  applyWindowChrome(next.theme)
 
   // Keep servers.json's on-disk format in sync with the protectServerData toggle.
   if (previousProtect !== nextProtect) {
@@ -377,7 +379,7 @@ ipcMain.handle('app:get-info', () => ({
 ipcMain.handle('theme:get-system', (): ResolvedTheme => nativeTheme.shouldUseDarkColors ? 'dark' : 'light')
 ipcMain.handle('theme:set-chrome', (_, resolved: ResolvedTheme) => {
   const preference = normalizeTheme(readJsonSync(SETTINGS_PATH, DEFAULT_SETTINGS).theme)
-  applyWindowChrome(resolved === 'light' ? 'light' : 'dark', preference)
+  applyWindowChrome(preference, resolved === 'light' ? 'light' : 'dark')
   return true
 })
 
@@ -833,7 +835,7 @@ app.whenReady().then(() => {
     if (!mainWindow || mainWindow.isDestroyed()) return
     if (preference !== 'system') return
     const resolved = resolveThemePreference('system')
-    applyWindowChrome(resolved, preference)
+    applyWindowChrome(preference, resolved)
     mainWindow.webContents.send('theme:system-changed', resolved)
   })
   app.on('activate', () => {
