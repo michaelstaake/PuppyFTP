@@ -2,6 +2,7 @@ import { useEffect, useImperativeHandle, useRef, forwardRef } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
+import { SerializeAddon } from '@xterm/addon-serialize'
 import '@xterm/xterm/css/xterm.css'
 import { Server } from '@shared/types'
 
@@ -11,6 +12,8 @@ export interface XTermHandle {
   /** Undo prepareDetach if pop-out did not proceed. */
   cancelDetach: () => void
   getSessionId: () => string | null
+  /** Serialize visible buffer + scrollback for handoff to another window. */
+  serialize: () => string
 }
 
 interface XTermProps {
@@ -40,6 +43,7 @@ const XTerm = forwardRef<XTermHandle, XTermProps>(function XTerm(
   const containerRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
+  const serializeAddonRef = useRef<SerializeAddon | null>(null)
   const sessionIdRef = useRef<string | null>(null)
   const cleanupRef = useRef<(() => void) | null>(null)
   const establishedRef = useRef(false)
@@ -61,6 +65,13 @@ const XTerm = forwardRef<XTermHandle, XTermProps>(function XTerm(
       detachRef.current = false
     },
     getSessionId: () => sessionIdRef.current,
+    serialize: () => {
+      try {
+        return serializeAddonRef.current?.serialize() ?? ''
+      } catch {
+        return ''
+      }
+    },
   }))
 
   useEffect(() => {
@@ -70,6 +81,7 @@ const XTerm = forwardRef<XTermHandle, XTermProps>(function XTerm(
       cursorBlink: true,
       fontSize: 14,
       fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+      scrollback: 5000,
       theme: {
         background: '#0a0a0f',
         foreground: '#e0e0e0',
@@ -80,8 +92,11 @@ const XTerm = forwardRef<XTermHandle, XTermProps>(function XTerm(
     })
 
     const fitAddon = new FitAddon()
+    const serializeAddon = new SerializeAddon()
     fitAddonRef.current = fitAddon
+    serializeAddonRef.current = serializeAddon
     term.loadAddon(fitAddon)
+    term.loadAddon(serializeAddon)
     term.loadAddon(new WebLinksAddon())
 
     term.open(containerRef.current)
@@ -98,14 +113,22 @@ const XTerm = forwardRef<XTermHandle, XTermProps>(function XTerm(
         }
 
         let sessionId: string
+        let restoredScrollback = ''
         if (existingSessionId) {
           const claimed = await window.electronAPI.claimTerminal(existingSessionId)
-          if (!claimed) {
+          if (!claimed?.success) {
             throw new Error('Terminal session is no longer available')
           }
           sessionId = existingSessionId
+          restoredScrollback = claimed.scrollback || ''
         } else {
           sessionId = await window.electronAPI.createTerminal(server)
+        }
+
+        if (restoredScrollback && termRef.current) {
+          await new Promise<void>(resolve => {
+            termRef.current?.write(restoredScrollback, () => resolve())
+          })
         }
 
         sessionIdRef.current = sessionId
@@ -167,6 +190,7 @@ const XTerm = forwardRef<XTermHandle, XTermProps>(function XTerm(
             termRef.current = null
           }
           fitAddonRef.current = null
+          serializeAddonRef.current = null
         }
         cleanupRef.current = cleanup
       } catch (err: unknown) {

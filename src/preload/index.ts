@@ -45,17 +45,22 @@ const api: ElectronAPI = {
   sendTerminalData: (sessionId: string, data: string): Promise<void> => ipcRenderer.invoke('terminal:input', sessionId, data),
   resizeTerminal: (sessionId: string, cols: number, rows: number): Promise<void> => ipcRenderer.invoke('terminal:resize', sessionId, cols, rows),
   closeTerminal: (sessionId: string): Promise<void> => ipcRenderer.invoke('terminal:close', sessionId),
-  claimTerminal: (sessionId: string): Promise<boolean> => ipcRenderer.invoke('terminal:claim', sessionId),
+  claimTerminal: (
+    sessionId: string
+  ): Promise<{ success: boolean; scrollback: string }> => ipcRenderer.invoke('terminal:claim', sessionId),
   popOutTerminal: (
-    serverId: string
+    serverId: string,
+    scrollback?: string
   ): Promise<{ success: boolean; sessionId?: string; alreadyOpen?: boolean; error?: string }> =>
-    ipcRenderer.invoke('terminal:pop-out', serverId),
+    ipcRenderer.invoke('terminal:pop-out', serverId, scrollback),
   dockTerminal: (
     serverId: string
   ): Promise<{ success: boolean; sessionId?: string; error?: string }> =>
     ipcRenderer.invoke('terminal:dock', serverId),
   closeTerminalForServer: (serverId: string): Promise<boolean> =>
     ipcRenderer.invoke('terminal:close-for-server', serverId),
+  respondTerminalScrollback: (requestId: string, scrollback: string): Promise<boolean> =>
+    ipcRenderer.invoke('terminal:scrollback-response', { requestId, scrollback }),
   onTerminalData: (callback: (sessionId: string, data: string) => void): (() => void) => {
     const listener = (_e: Electron.IpcRendererEvent, sessionId: string, data: string) => callback(sessionId, data)
     ipcRenderer.on('terminal:data', listener)
@@ -65,6 +70,11 @@ const api: ElectronAPI = {
     const listener = (_e: Electron.IpcRendererEvent, sessionId: string) => callback(sessionId)
     ipcRenderer.on('terminal:exit', listener)
     return () => ipcRenderer.removeListener('terminal:exit', listener)
+  },
+  onTerminalScrollbackRequest: (callback: (requestId: string) => void): (() => void) => {
+    const listener = (_e: Electron.IpcRendererEvent, requestId: string) => callback(requestId)
+    ipcRenderer.on('terminal:scrollback-request', listener)
+    return () => ipcRenderer.removeListener('terminal:scrollback-request', listener)
   },
   onTerminalPopoutState: (
     callback: (state: {

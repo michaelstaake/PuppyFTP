@@ -439,6 +439,10 @@ interface TerminalSession {
 }
 
 const terminalSessions = new Map<string, TerminalSession>()
+/** Serialized xterm buffers held during pop-out / dock handoff. */
+const terminalScrollbacks = new Map<string, string>()
+/** In-flight scrollback requests from pop-out windows during dock. */
+const pendingScrollbackRequests = new Map<string, (data: string) => void>()
 
 const pendingCommandApprovals = new Map<
   string,
@@ -509,12 +513,52 @@ function emitTerminalExit(sessionId: string, serverId: string): void {
   }
 }
 
+function stashTerminalScrollback(sessionId: string, scrollback: string): void {
+  terminalScrollbacks.set(sessionId, typeof scrollback === 'string' ? scrollback : '')
+}
+
+function takeTerminalScrollback(sessionId: string): string {
+  const value = terminalScrollbacks.get(sessionId) ?? ''
+  terminalScrollbacks.delete(sessionId)
+  return value
+}
+
+function appendTerminalScrollback(sessionId: string, chunk: string): void {
+  if (!terminalScrollbacks.has(sessionId)) return
+  terminalScrollbacks.set(sessionId, (terminalScrollbacks.get(sessionId) || '') + chunk)
+}
+
+function requestScrollbackFromPopout(win: BrowserWindow): Promise<string> {
+  if (win.isDestroyed()) return Promise.resolve('')
+  const requestId = `sb_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`
+  return new Promise(resolve => {
+    const timer = setTimeout(() => {
+      if (pendingScrollbackRequests.has(requestId)) {
+        pendingScrollbackRequests.delete(requestId)
+        resolve('')
+      }
+    }, 2000)
+    pendingScrollbackRequests.set(requestId, (data: string) => {
+      clearTimeout(timer)
+      resolve(data)
+    })
+    try {
+      win.webContents.send('terminal:scrollback-request', requestId)
+    } catch {
+      clearTimeout(timer)
+      pendingScrollbackRequests.delete(requestId)
+      resolve('')
+    }
+  })
+}
+
 function endTerminalSession(sessionId: string): void {
   const sess = terminalSessions.get(sessionId)
   if (!sess) return
   try { if (sess.stream?.end) sess.stream.end() } catch { /* ignore */ }
   try { if (sess.client?.end) sess.client.end() } catch { /* ignore */ }
   terminalSessions.delete(sessionId)
+  terminalScrollbacks.delete(sessionId)
 }
 
 function closeTerminalPopoutWindow(serverId: string, opts: { endSession: boolean }): void {
@@ -763,7 +807,10 @@ ipcMain.handle("terminal:create", async (event, server: Server) => {
         session.stream = stream
 
         stream.on("data", (data: Buffer | string) => {
-          sendToTerminalOwner(sessionId, "terminal:data", sessionId, data.toString())
+          const text = data.toString()
+          // While a scrollback stash exists (pop-out/dock handoff), keep buffering output.
+          appendTerminalScrollback(sessionId, text)
+          sendToTerminalOwner(sessionId, "terminal:data", sessionId, text)
         })
 
         stream.on("close", () => {
@@ -827,12 +874,23 @@ ipcMain.handle("terminal:close", async (event, sessionId: string) => {
 
 ipcMain.handle("terminal:claim", async (event, sessionId: string) => {
   const sess = terminalSessions.get(sessionId)
-  if (!sess || !sess.stream) return false
+  if (!sess || !sess.stream) return { success: false as const, scrollback: '' }
   sess.ownerWebContentsId = event.sender.id
+  const scrollback = takeTerminalScrollback(sessionId)
+  return { success: true as const, scrollback }
+})
+
+ipcMain.handle("terminal:scrollback-response", (_event, payload: { requestId?: string; scrollback?: string }) => {
+  const requestId = payload?.requestId
+  if (!requestId || typeof requestId !== 'string') return false
+  const resolve = pendingScrollbackRequests.get(requestId)
+  if (!resolve) return false
+  pendingScrollbackRequests.delete(requestId)
+  resolve(typeof payload?.scrollback === 'string' ? payload.scrollback : '')
   return true
 })
 
-ipcMain.handle("terminal:pop-out", async (_event, serverId: string) => {
+ipcMain.handle("terminal:pop-out", async (_event, serverId: string, scrollback?: string) => {
   if (!serverId || typeof serverId !== 'string') {
     return { success: false as const, error: 'Invalid server id' }
   }
@@ -849,6 +907,9 @@ ipcMain.handle("terminal:pop-out", async (_event, serverId: string) => {
   if (!entry) {
     return { success: false as const, error: 'No active terminal session' }
   }
+
+  // Stash before opening the pop-out so output during the handoff is buffered.
+  stashTerminalScrollback(entry.sessionId, typeof scrollback === 'string' ? scrollback : '')
 
   const servers = readServers()
   const server = servers.find(s => s.id === serverId)
@@ -909,6 +970,14 @@ ipcMain.handle("terminal:dock", async (_event, serverId: string) => {
     return { success: false as const, error: 'Terminal is not popped out' }
   }
   const sessionId = pop.sessionId
+
+  // Capture scrollback from the pop-out window before it closes.
+  let scrollback = ''
+  if (!pop.window.isDestroyed()) {
+    scrollback = await requestScrollbackFromPopout(pop.window)
+  }
+  stashTerminalScrollback(sessionId, scrollback)
+
   pop.docking = true
   if (!pop.window.isDestroyed()) {
     pop.window.close()

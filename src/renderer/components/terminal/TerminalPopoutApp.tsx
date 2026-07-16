@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { Server, protocolLabel } from '@shared/types'
 import { applyResolvedTheme, normalizeThemePreference, resolveTheme } from '../../lib/theme'
-import XTerm from './XTerm'
+import XTerm, { XTermHandle } from './XTerm'
 
 interface TerminalPopoutAppProps {
   serverId: string
@@ -12,6 +12,7 @@ const TerminalPopoutApp: React.FC<TerminalPopoutAppProps> = ({ serverId, session
   const [server, setServer] = useState<Server | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [closed, setClosed] = useState(false)
+  const xtermRef = useRef<XTermHandle | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -46,6 +47,14 @@ const TerminalPopoutApp: React.FC<TerminalPopoutAppProps> = ({ serverId, session
     if (!window.electronAPI?.onSystemThemeChange) return
     return window.electronAPI.onSystemThemeChange(resolved => {
       applyResolvedTheme(resolved)
+    })
+  }, [])
+
+  useEffect(() => {
+    if (!window.electronAPI?.onTerminalScrollbackRequest) return
+    return window.electronAPI.onTerminalScrollbackRequest(requestId => {
+      const scrollback = xtermRef.current?.serialize() ?? ''
+      void window.electronAPI.respondTerminalScrollback(requestId, scrollback)
     })
   }, [])
 
@@ -89,6 +98,7 @@ const TerminalPopoutApp: React.FC<TerminalPopoutAppProps> = ({ serverId, session
           </div>
         ) : (
           <XTerm
+            ref={xtermRef}
             server={server}
             existingSessionId={sessionId}
             detachOnUnmount

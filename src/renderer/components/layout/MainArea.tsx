@@ -97,10 +97,12 @@ const MainArea: React.FC<MainAreaProps> = ({
       })
       return
     }
-    xtermRefs.current[id]?.prepareDetach()
-    void window.electronAPI?.popOutTerminal?.(id).then(result => {
+    const handle = xtermRefs.current[id]
+    handle?.prepareDetach()
+    const scrollback = handle?.serialize() ?? ''
+    void window.electronAPI?.popOutTerminal?.(id, scrollback).then(result => {
       if (!result?.success) {
-        xtermRefs.current[id]?.cancelDetach()
+        handle?.cancelDetach()
         onPopOutError?.(result?.error || 'Could not open terminal in a new window')
       }
     })
