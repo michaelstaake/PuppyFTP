@@ -695,7 +695,7 @@ const App: FC = () => {
   useEffect(() => {
     const unsub = window.electronAPI?.onTerminalPopoutState?.(state => {
       if (!state?.serverId) return
-      const { serverId, poppedOut, sessionId, ended } = state
+      const { serverId, poppedOut, sessionId, ended, disconnect } = state
 
       if (poppedOut) {
         setPoppedOutByServerId(prev => ({ ...prev, [serverId]: true }))
@@ -715,14 +715,24 @@ const App: FC = () => {
         return next
       })
 
-      if (ended) {
+      if (disconnect || ended) {
         setAttachSessionIdByServerId(prev => {
           if (!(serverId in prev)) return prev
           const next = { ...prev }
           delete next[serverId]
           return next
         })
-        markConnectionLost(serverId)
+        if (disconnect) {
+          // Same as clicking Disconnect — return to the idle "Not connected" state.
+          setConnectionByServerId(prev => {
+            if (!(serverId in prev)) return prev
+            const next = { ...prev }
+            delete next[serverId]
+            return next
+          })
+        } else {
+          markConnectionLost(serverId)
+        }
         return
       }
 

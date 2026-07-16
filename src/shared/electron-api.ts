@@ -50,6 +50,7 @@ export type ElectronAPI = {
       poppedOut: boolean
       sessionId?: string
       ended?: boolean
+      disconnect?: boolean
     }) => void
   ) => () => void
 

@@ -466,7 +466,10 @@ function notifyMainPopoutState(payload: {
   serverId: string
   poppedOut: boolean
   sessionId?: string
+  /** Unexpected SSH death while popped out — show connection-lost UI. */
   ended?: boolean
+  /** User closed the pop-out window — disconnect like the main Disconnect button. */
+  disconnect?: boolean
 }): void {
   if (!mainWindow || mainWindow.isDestroyed()) return
   mainWindow.webContents.send('terminal:popout-state', payload)
@@ -875,19 +878,16 @@ ipcMain.handle("terminal:pop-out", async (_event, serverId: string) => {
       return
     }
 
-    // Native close (or disconnect) ends the SSH session.
+    // Native close ends the SSH session and disconnects cleanly in the main UI.
     const stillOpen = terminalSessions.has(pop.sessionId)
     if (stillOpen) {
       endTerminalSession(pop.sessionId)
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('terminal:exit', pop.sessionId)
-      }
     }
     notifyMainPopoutState({
       serverId,
       poppedOut: false,
       sessionId: pop.sessionId,
-      ended: true,
+      disconnect: true,
     })
   })
 

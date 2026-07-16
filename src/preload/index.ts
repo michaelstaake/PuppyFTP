@@ -72,11 +72,18 @@ const api: ElectronAPI = {
       poppedOut: boolean
       sessionId?: string
       ended?: boolean
+      disconnect?: boolean
     }) => void
   ): (() => void) => {
     const listener = (
       _e: Electron.IpcRendererEvent,
-      state: { serverId: string; poppedOut: boolean; sessionId?: string; ended?: boolean }
+      state: {
+        serverId: string
+        poppedOut: boolean
+        sessionId?: string
+        ended?: boolean
+        disconnect?: boolean
+      }
     ) => callback(state)
     ipcRenderer.on('terminal:popout-state', listener)
     return () => ipcRenderer.removeListener('terminal:popout-state', listener)
