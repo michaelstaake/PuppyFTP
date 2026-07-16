@@ -399,9 +399,6 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                 <Settings2 className="h-5 w-5 text-accent" />
                 General
               </h2>
-              <p className="text-sm text-muted-foreground mt-1">
-                App info, appearance, and connection defaults.
-              </p>
             </div>
 
             <div className="rounded border border-border bg-card/50 px-4 py-3 space-y-2">
@@ -427,12 +424,6 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                   Open folder
                 </button>
               </div>
-              <p className="text-[10px] text-muted-foreground">
-                servers.json, categories.json, settings.json live here.{' '}
-                {settings.protectServerData
-                  ? 'servers.json is encrypted with your OS credential store and cannot be copied to another machine.'
-                  : 'Copy these files to sync/backup across machines.'}
-              </p>
             </div>
 
             <div className="rounded border border-border bg-card/50 px-4 py-3 space-y-2">
@@ -440,7 +431,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                 <div className="min-w-0">
                   <div className="text-sm font-medium">Protect server data</div>
                   <div className="text-xs text-muted-foreground mt-0.5">
-                    Encrypts servers.json with your OS credential store. Not portable between machines.
+                    Encrypts servers.json with your OS credential store.
                   </div>
                 </div>
                 <button
@@ -499,10 +490,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
             </div>
 
             <div className="space-y-2">
-              <div className="text-sm font-medium">UI Style</div>
-              <p className="text-xs text-muted-foreground">
-                System follows your host appearance setting.
-              </p>
+              <div className="text-sm font-medium">Theme</div>
               <div className="grid grid-cols-3 gap-2">
                 {THEME_OPTIONS.map(option => {
                   const selected = settings.theme === option.id
@@ -532,11 +520,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
             <div>
               <h2 className="text-lg font-semibold flex items-center gap-2">
                 <Bot className="h-5 w-5 text-accent" />
-                Connect AI
+                AI
               </h2>
-              <p className="text-sm text-muted-foreground mt-1">
-                OpenAI-compatible endpoint for asking questions about your servers — and optionally running SSH commands.
-              </p>
             </div>
 
             <div className="flex items-center justify-between gap-4 rounded border border-border bg-card/50 px-4 py-3">
@@ -643,7 +628,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
               <div>
                 <div className="text-sm font-medium">Context length</div>
                 <div className="text-xs text-muted-foreground mt-0.5">
-                  Max tokens for Ask AI history and prompts. Shown as a usage ring in the chat input.
+                  Max tokens for Ask AI history and prompts.
                 </div>
               </div>
               <div className="flex items-center gap-2">
@@ -878,7 +863,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
             <div className="space-y-2">
               {(settings.keys || []).length === 0 && (
                 <div className="text-sm text-muted-foreground border border-dashed border-border rounded p-4">
-                  No keys yet. Add a private key below to select it when connecting to servers.
+                  No keys yet.
                 </div>
               )}
               {(settings.keys || []).map(key => (
