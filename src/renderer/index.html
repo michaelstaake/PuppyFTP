@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/png" href="./logo-icon.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      connect-src includes localhost/127.0.0.1 http+ws for the Vite dev server; packaged builds
+      only ever load this file:// bundle, so those extra origins are unreachable in production.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' http://localhost:* ws://localhost:* http://127.0.0.1:* ws://127.0.0.1:*; object-src 'none'; base-uri 'self'"
+    />
+    <title>PuppyFTP</title>
+    <script>
+      (function () {
+        try {
+          var dark = window.matchMedia('(prefers-color-scheme: dark)').matches
+          document.documentElement.classList.toggle('dark', dark)
+          document.documentElement.classList.toggle('light', !dark)
+          document.documentElement.style.colorScheme = dark ? 'dark' : 'light'
+        } catch (e) {}
+      })()
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="./main.tsx"></script>
+  </body>
+</html>
