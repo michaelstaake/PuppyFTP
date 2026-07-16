@@ -1,6 +1,6 @@
 # PuppyFTP
 
-Open-source AI-enhanced FTP/SFTP + SSH desktop client.
+Opensource, free FTP/SFTP + SSH desktop client with optional AI enhancements.
 
 ## Why PuppyFTP
 
