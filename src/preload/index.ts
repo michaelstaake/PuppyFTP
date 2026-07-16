@@ -118,6 +118,8 @@ const api: ElectronAPI = {
   deleteRemote: (serverId: string, filePath: string): Promise<boolean> => ipcRenderer.invoke('fs:delete-remote', serverId, filePath),
   renameLocal: (oldPath: string, newPath: string): Promise<boolean> => ipcRenderer.invoke('fs:rename-local', oldPath, newPath),
   renameRemote: (serverId: string, oldPath: string, newPath: string): Promise<boolean> => ipcRenderer.invoke('fs:rename-remote', serverId, oldPath, newPath),
+  chmodRemote: (serverId: string, filePath: string, mode: number | string): Promise<boolean> =>
+    ipcRenderer.invoke('fs:chmod-remote', serverId, filePath, mode),
   uploadFile: (
     serverId: string,
     localPath: string,

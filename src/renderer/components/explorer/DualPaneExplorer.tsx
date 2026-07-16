@@ -1,9 +1,10 @@
 import { useEffect, useState, useCallback, useImperativeHandle, forwardRef, useRef, useMemo } from 'react'
 import { Server } from '@shared/types'
 import type { ExploreProgressEvent, FileEntry, RemoteCacheEntry } from '@shared/types'
-import { ArrowUp, FolderPlus, Upload, Download, Pencil, Trash2 } from 'lucide-react'
+import { ArrowUp, FolderPlus, Upload, Download, Pencil, Trash2, Shield } from 'lucide-react'
 import { useTransferStore } from '../../store/transferStore'
 import { useExplorerStore } from '../../store/explorerStore'
+import PermissionsDialog from './PermissionsDialog'
 
 interface DualPaneExplorerProps {
   server: Server
@@ -80,6 +81,7 @@ const DualPaneExplorer = forwardRef<DualPaneExplorerHandle, DualPaneExplorerProp
 
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
   const contextMenuRef = useRef<HTMLDivElement>(null)
+  const [permissionsEntry, setPermissionsEntry] = useState<FileEntry | null>(null)
   const [dropTarget, setDropTarget] = useState<PaneSide | null>(null)
   const dragPayloadRef = useRef<DragPayload | null>(null)
 
@@ -366,6 +368,12 @@ const DualPaneExplorer = forwardRef<DualPaneExplorerHandle, DualPaneExplorerProp
     setSelection(side, new Set())
     if (isLocal) refreshLocal()
     else refreshRemote()
+  }
+
+  const saveRemotePermissions = async (entry: FileEntry, modeOctal: string) => {
+    const ok = await window.electronAPI.chmodRemote(server.id, entry.path, modeOctal)
+    if (ok) await refreshRemote()
+    return ok
   }
 
   const enqueueFile = (
@@ -695,6 +703,20 @@ const DualPaneExplorer = forwardRef<DualPaneExplorerHandle, DualPaneExplorerProp
             <Pencil className="h-3.5 w-3.5" />
             Rename
           </button>
+          {!menuIsLocal && (
+            <button
+              type="button"
+              className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-muted text-left disabled:opacity-40 disabled:pointer-events-none"
+              disabled={menuEntries.length !== 1}
+              onClick={() => {
+                if (contextMenu) setPermissionsEntry(contextMenu.entry)
+                setContextMenu(null)
+              }}
+            >
+              <Shield className="h-3.5 w-3.5" />
+              Permissions
+            </button>
+          )}
           <button
             type="button"
             className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-muted text-left text-red-400"
@@ -707,6 +729,14 @@ const DualPaneExplorer = forwardRef<DualPaneExplorerHandle, DualPaneExplorerProp
             Delete
           </button>
         </div>
+      )}
+
+      {permissionsEntry && (
+        <PermissionsDialog
+          entry={permissionsEntry}
+          onClose={() => setPermissionsEntry(null)}
+          onSave={modeOctal => saveRemotePermissions(permissionsEntry, modeOctal)}
+        />
       )}
     </div>
   )

@@ -44,6 +44,10 @@ interface RawListItem {
   size?: number
   modifyTime?: number
   modifiedAt?: Date
+  /** ssh2-sftp-client: e.g. { user: 'rwx', group: 'r-x', other: 'r--' } */
+  rights?: { user?: string; group?: string; other?: string }
+  /** basic-ftp UnixPermissions bitmasks (Read=4, Write=2, Execute=1). */
+  permissions?: { user: number; group: number; world: number }
 }
 
 interface Listable {
@@ -59,14 +63,59 @@ function toChildPath(protocol: Server['protocol'], parentPath: string, name: str
   return (parentPath.endsWith('/') ? parentPath : parentPath + '/') + name
 }
 
+function rwxTriplet(bits: string | undefined): string {
+  const s = (bits || '---').toLowerCase().padEnd(3, '-').slice(0, 3)
+  return `${s.includes('r') ? 'r' : '-'}${s.includes('w') ? 'w' : '-'}${s.includes('x') ? 'x' : '-'}`
+}
+
+function modeBitsToRwx(n: number): string {
+  return `${n & 4 ? 'r' : '-'}${n & 2 ? 'w' : '-'}${n & 1 ? 'x' : '-'}`
+}
+
+/** Normalize listing metadata into a 9-char symbolic mode (e.g. rwxr-xr-x). */
+function extractPermissions(item: RawListItem): string | undefined {
+  if (item.rights) {
+    return `${rwxTriplet(item.rights.user)}${rwxTriplet(item.rights.group)}${rwxTriplet(item.rights.other)}`
+  }
+  if (item.permissions) {
+    return `${modeBitsToRwx(item.permissions.user)}${modeBitsToRwx(item.permissions.group)}${modeBitsToRwx(item.permissions.world)}`
+  }
+  return undefined
+}
+
 function toFileEntry(item: RawListItem, parentPath: string, protocol: Server['protocol']): FileEntry {
+  const permissions = extractPermissions(item)
   return {
     name: item.name,
     type: isDirType(item.type) ? 'dir' : 'file',
     size: item.size || 0,
     mtime: item.modifyTime || (item.modifiedAt ? item.modifiedAt.getTime() : Date.now()),
+    ...(permissions ? { permissions } : {}),
     path: toChildPath(protocol, parentPath, item.name),
   }
+}
+
+/** Accept octal string ("755"), number, or symbolic ("rwxr-xr-x") and return 0–0o777. */
+function parseMode(mode: number | string): number | null {
+  if (typeof mode === 'number' && Number.isFinite(mode)) {
+    return mode & 0o777
+  }
+  const raw = String(mode).trim()
+  if (/^[0-7]{3,4}$/.test(raw)) {
+    return parseInt(raw.slice(-3), 8) & 0o777
+  }
+  const sym = raw.replace(/^[\-dlbcps]/, '')
+  if (/^[rwx\-]{9}$/i.test(sym)) {
+    let n = 0
+    for (let i = 0; i < 9; i++) {
+      const c = sym[i].toLowerCase()
+      if (c === 'r') n |= 4 << (6 - Math.floor(i / 3) * 3)
+      else if (c === 'w') n |= 2 << (6 - Math.floor(i / 3) * 3)
+      else if (c === 'x') n |= 1 << (6 - Math.floor(i / 3) * 3)
+    }
+    return n & 0o777
+  }
+  return null
 }
 
 const remoteClients = new Map<string, RemoteClient>()
@@ -338,6 +387,24 @@ export function registerFsHandlers(userDataPath: string, mainWindowRef: { curren
       return true
     }, false)
   })
+
+  ipcMain.handle(
+    'fs:chmod-remote',
+    async (_, serverId: string, filePath: string, mode: number | string): Promise<boolean> => {
+      const parsed = parseMode(mode)
+      if (parsed == null) return false
+      const octal = parsed.toString(8).padStart(3, '0')
+      return withRemoteClient(serverId, async (_server, client) => {
+        if (isSftpClient(client)) {
+          await client.chmod(filePath, parsed)
+        } else {
+          // FTP has no standard chmod; SITE CHMOD is a common Unix extension.
+          await client.send(`SITE CHMOD ${octal} ${filePath}`)
+        }
+        return true
+      }, false)
+    }
+  )
 
   function sendTransferProgress(payload: Record<string, unknown>) {
     const win = mainWindowRef.current

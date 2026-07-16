@@ -75,6 +75,7 @@ export type ElectronAPI = {
   deleteRemote: (serverId: string, filePath: string) => Promise<boolean>
   renameLocal: (oldPath: string, newPath: string) => Promise<boolean>
   renameRemote: (serverId: string, oldPath: string, newPath: string) => Promise<boolean>
+  chmodRemote: (serverId: string, filePath: string, mode: number | string) => Promise<boolean>
   uploadFile: (
     serverId: string,
     localPath: string,
