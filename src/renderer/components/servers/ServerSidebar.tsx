@@ -113,7 +113,20 @@ const ServerSidebar: React.FC<ServerSidebarProps> = ({
   const [categoryNameDraft, setCategoryNameDraft] = useState('')
   const categoryMenuRef = useRef<HTMLDivElement>(null)
   const serverMenuRef = useRef<HTMLDivElement>(null)
+  // Only dismiss when press started on the backdrop — avoids closing when
+  // text selection drag ends with mouseup outside the panel.
+  const modalBackdropMouseDownRef = useRef(false)
   const isEditing = editingServerId != null
+
+  const onModalBackdropMouseDown = (e: React.MouseEvent) => {
+    modalBackdropMouseDownRef.current = e.target === e.currentTarget
+  }
+
+  const onModalBackdropClick = (close: () => void) => (e: React.MouseEvent) => {
+    if (e.target === e.currentTarget && modalBackdropMouseDownRef.current) {
+      close()
+    }
+  }
 
   const sortedCategories = [...categories].sort((a, b) => a.order - b.order)
   const hasCustomCategories = categories.some(c => c.id !== UNCATEGORIZED_ID)
@@ -628,7 +641,8 @@ const ServerSidebar: React.FC<ServerSidebarProps> = ({
       {categoryModal?.type === 'add' && (
         <div
           className="fixed inset-0 bg-black/60 flex items-center justify-center z-50"
-          onClick={closeCategoryModal}
+          onMouseDown={onModalBackdropMouseDown}
+          onClick={onModalBackdropClick(closeCategoryModal)}
         >
           <div
             className="bg-card border border-border rounded-lg w-full max-w-sm p-6"
@@ -670,7 +684,8 @@ const ServerSidebar: React.FC<ServerSidebarProps> = ({
       {categoryModal?.type === 'rename' && (
         <div
           className="fixed inset-0 bg-black/60 flex items-center justify-center z-50"
-          onClick={closeCategoryModal}
+          onMouseDown={onModalBackdropMouseDown}
+          onClick={onModalBackdropClick(closeCategoryModal)}
         >
           <div
             className="bg-card border border-border rounded-lg w-full max-w-sm p-6"
@@ -712,7 +727,8 @@ const ServerSidebar: React.FC<ServerSidebarProps> = ({
       {categoryModal?.type === 'delete' && deleteModalCategory && (
         <div
           className="fixed inset-0 bg-black/60 flex items-center justify-center z-50"
-          onClick={closeCategoryModal}
+          onMouseDown={onModalBackdropMouseDown}
+          onClick={onModalBackdropClick(closeCategoryModal)}
         >
           <div
             className="bg-card border border-border rounded-lg w-full max-w-sm p-6"
@@ -804,7 +820,8 @@ const ServerSidebar: React.FC<ServerSidebarProps> = ({
       {showAddModal && (
         <div
           className="fixed inset-0 bg-black/60 flex items-center justify-center z-50"
-          onClick={closeModal}
+          onMouseDown={onModalBackdropMouseDown}
+          onClick={onModalBackdropClick(closeModal)}
         >
           <div
             className="bg-card border border-border rounded-lg w-full max-w-md p-6"
