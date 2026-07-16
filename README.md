@@ -21,7 +21,7 @@ Download a prebuilt installer from the [Releases](https://github.com/michaelstaa
 | macOS | `.dmg` |
 | Linux | `.AppImage` or `.deb` |
 
-Installers are built automatically when a version tag is pushed (for example `v1.0.0`).
+Installers are built automatically when a version tag is pushed (for example `v1.0.1`).
 
 ## Quick start (from source)
 
