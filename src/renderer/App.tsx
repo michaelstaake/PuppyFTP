@@ -13,8 +13,10 @@ import {
   DEFAULT_CONNECTION_TIMEOUT,
   DEFAULT_CATEGORIES,
   DEFAULT_CONTEXT_LENGTH,
+  DEFAULT_FILES_SETTINGS,
   UNCATEGORIZED_ID,
   normalizeConnectionTimeout,
+  normalizeFilesSettings,
   type ExplorerSortPreference,
 } from '@shared/types'
 import ServerSidebar from './components/servers/ServerSidebar'
@@ -41,6 +43,7 @@ const defaultSettings: AppSettings = {
     askBeforeRunningCommands: true,
     contextLength: DEFAULT_CONTEXT_LENGTH,
   },
+  files: { ...DEFAULT_FILES_SETTINGS },
   keys: [],
 }
 
@@ -328,6 +331,7 @@ const App: FC = () => {
             connectionTimeout: normalizeConnectionTimeout(settings?.connectionTimeout),
             protectServerData: settings?.protectServerData === true,
             ai: { ...defaultSettings.ai, ...settings?.ai },
+            files: normalizeFilesSettings(settings?.files),
             keys: settings?.keys || [],
           }
           setAppSettings(next)
@@ -932,6 +936,7 @@ const App: FC = () => {
           Math.min(1_000_000, Math.round(Number(newSettings.ai.contextLength) || DEFAULT_CONTEXT_LENGTH))
         ),
       },
+      files: normalizeFilesSettings(newSettings.files),
     }
     if (window.electronAPI) {
       await window.electronAPI.saveSettings(next)
@@ -1002,6 +1007,8 @@ const App: FC = () => {
               onLocalPathChange={handleLocalPathChange}
               onLocalSortChange={handleLocalSortChange}
               onRemoteSortChange={handleRemoteSortChange}
+              fileFontStyle={appSettings?.files.fontStyle ?? DEFAULT_FILES_SETTINGS.fontStyle}
+              fileFontSize={appSettings?.files.fontSize ?? DEFAULT_FILES_SETTINGS.fontSize}
               aiEnabled={aiEnabled}
               aiChatOpen={aiChatOpen}
               onToggleAIChat={toggleAIChat}

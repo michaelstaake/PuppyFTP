@@ -3,15 +3,20 @@ import {
   AppInfo,
   AppSettings,
   AuthKey,
+  FileFontStyle,
   SettingsSection,
   ThemePreference,
   DEFAULT_CONNECTION_TIMEOUT,
   DEFAULT_CONTEXT_LENGTH,
+  DEFAULT_FILE_FONT_SIZE,
   normalizeConnectionTimeout,
+  normalizeFileFontSize,
+  normalizeFileFontStyle,
 } from '@shared/types'
 import {
   ArrowLeft,
   Bot,
+  Files,
   KeyRound,
   Loader2,
   Monitor,
@@ -37,6 +42,12 @@ const THEME_OPTIONS: { id: ThemePreference; label: string; icon: React.ReactNode
   { id: 'system', label: 'System', icon: <Monitor className="h-4 w-4" /> },
   { id: 'light', label: 'Light', icon: <Sun className="h-4 w-4" /> },
   { id: 'dark', label: 'Dark', icon: <Moon className="h-4 w-4" /> },
+]
+
+const FILE_FONT_STYLE_OPTIONS: { id: FileFontStyle; label: string }[] = [
+  { id: 'ubuntu', label: 'Ubuntu' },
+  { id: 'mono', label: 'Monospace' },
+  { id: 'sans', label: 'Sans-serif' },
 ]
 
 const BASE_URL_PRESETS: { name: string; url: string }[] = [
@@ -92,6 +103,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   const [testStatus, setTestStatus] = useState<'idle' | 'running' | 'success' | 'error'>('idle')
   const [testMessage, setTestMessage] = useState('')
   const generalRef = useRef<HTMLDivElement>(null)
+  const filesRef = useRef<HTMLDivElement>(null)
   const aiRef = useRef<HTMLDivElement>(null)
   const authRef = useRef<HTMLDivElement>(null)
   const settingsRef = useRef(settings)
@@ -103,6 +115,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
 
   const sectionRef = (id: SettingsSection) => {
     if (id === 'general') return generalRef.current
+    if (id === 'files') return filesRef.current
     if (id === 'auth') return authRef.current
     return aiRef.current
   }
@@ -438,6 +451,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
       <div className="flex flex-1 overflow-hidden">
         <aside className="w-48 border-r border-border p-3 space-y-1 bg-sidebar">
           {navBtn('general', 'General', <Settings2 className="h-4 w-4" />)}
+          {navBtn('files', 'Files', <Files className="h-4 w-4" />)}
           {navBtn('ai', 'AI', <Bot className="h-4 w-4" />)}
           {navBtn('auth', 'Authentication', <KeyRound className="h-4 w-4" />)}
         </aside>
@@ -562,6 +576,89 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                     </button>
                   )
                 })}
+              </div>
+            </div>
+          </section>
+
+          {/* Files */}
+          <section ref={filesRef} id="settings-files" className="max-w-lg space-y-4">
+            <div>
+              <h2 className="text-lg font-semibold flex items-center gap-2">
+                <Files className="h-5 w-5 text-accent" />
+                Files
+              </h2>
+            </div>
+
+            <div className="rounded border border-border bg-card/50 px-4 py-3 space-y-4">
+              <div className="space-y-2">
+                <div>
+                  <div className="text-sm font-medium">Font style</div>
+                  <div className="text-xs text-muted-foreground mt-0.5">
+                    Typeface used in the file explorer.
+                  </div>
+                </div>
+                <select
+                  id="file-font-style"
+                  className="w-full bg-background border border-border rounded px-3 py-1.5 text-sm"
+                  value={settings.files?.fontStyle ?? 'ubuntu'}
+                  onChange={e => {
+                    const fontStyle = normalizeFileFontStyle(e.target.value)
+                    void persist({
+                      ...settingsRef.current,
+                      files: {
+                        ...settingsRef.current.files,
+                        fontStyle,
+                      },
+                    })
+                  }}
+                >
+                  {FILE_FONT_STYLE_OPTIONS.map(option => (
+                    <option key={option.id} value={option.id}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-2">
+                <div>
+                  <div className="text-sm font-medium">Font size</div>
+                  <div className="text-xs text-muted-foreground mt-0.5">
+                    Size of file names and paths in the explorer.
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    id="file-font-size"
+                    type="number"
+                    min={10}
+                    max={32}
+                    step={1}
+                    className="w-24 bg-background border border-border rounded px-3 py-1.5 text-sm tabular-nums"
+                    value={settings.files?.fontSize ?? DEFAULT_FILE_FONT_SIZE}
+                    onChange={e => {
+                      const n = Number(e.target.value)
+                      setSettings(s => ({
+                        ...s,
+                        files: {
+                          ...s.files,
+                          fontSize: Number.isFinite(n) ? n : s.files.fontSize,
+                        },
+                      }))
+                    }}
+                    onBlur={() => {
+                      const fontSize = normalizeFileFontSize(settingsRef.current.files?.fontSize)
+                      void persist({
+                        ...settingsRef.current,
+                        files: {
+                          ...settingsRef.current.files,
+                          fontSize,
+                        },
+                      })
+                    }}
+                  />
+                  <span className="text-sm text-muted-foreground">px</span>
+                </div>
               </div>
             </div>
           </section>

@@ -1,5 +1,5 @@
 import React from 'react'
-import { Server, isSerialConnection, isTerminalProtocol, protocolLabel, type ExplorerSortPreference } from '@shared/types'
+import { Server, isSerialConnection, isTerminalProtocol, protocolLabel, type ExplorerSortPreference, type FileFontStyle } from '@shared/types'
 import {
   MessageCircle,
   RefreshCw,
@@ -47,6 +47,8 @@ interface MainAreaProps {
   onLocalSortChange?: (serverId: string, sort: ExplorerSortPreference) => void
   /** Persist last remote explorer sort per server. */
   onRemoteSortChange?: (serverId: string, sort: ExplorerSortPreference) => void
+  fileFontStyle?: FileFontStyle
+  fileFontSize?: number
 }
 
 const MainArea: React.FC<MainAreaProps> = ({
@@ -74,6 +76,8 @@ const MainArea: React.FC<MainAreaProps> = ({
   onLocalPathChange,
   onLocalSortChange,
   onRemoteSortChange,
+  fileFontStyle,
+  fileFontSize,
 }) => {
   const explorerRef = React.useRef<DualPaneExplorerHandle>(null)
   const xtermRefs = React.useRef<Record<string, XTermHandle | null>>({})
@@ -424,6 +428,8 @@ const MainArea: React.FC<MainAreaProps> = ({
                   onLocalPathChange={onLocalPathChange}
                   onLocalSortChange={onLocalSortChange}
                   onRemoteSortChange={onRemoteSortChange}
+                  fontStyle={fileFontStyle}
+                  fontSize={fileFontSize}
                 />
               )}
             </div>

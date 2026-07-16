@@ -1,11 +1,12 @@
 import { useEffect, useState, useCallback, useImperativeHandle, forwardRef, useRef, useMemo } from 'react'
-import { Server } from '@shared/types'
+import { Server, DEFAULT_FILES_SETTINGS } from '@shared/types'
 import type {
   ExploreProgressEvent,
   ExplorerSortColumn,
   ExplorerSortDirection,
   ExplorerSortPreference,
   FileEntry,
+  FileFontStyle,
   RemoteCacheEntry,
 } from '@shared/types'
 import { ArrowUp, ArrowDown, Folder, File as FileIcon, FolderPlus, Upload, Download, Pencil, Trash2, Shield } from 'lucide-react'
@@ -24,6 +25,8 @@ interface DualPaneExplorerProps {
   onLocalSortChange?: (serverId: string, sort: ExplorerSortPreference) => void
   /** Persist last remote list sort for this server (survives app restart). */
   onRemoteSortChange?: (serverId: string, sort: ExplorerSortPreference) => void
+  fontStyle?: FileFontStyle
+  fontSize?: number
 }
 
 export type DualPaneExplorerHandle = {
@@ -144,7 +147,17 @@ function joinName(dirPath: string, name: string, isLocal: boolean): string {
 }
 
 const DualPaneExplorer = forwardRef<DualPaneExplorerHandle, DualPaneExplorerProps>(function DualPaneExplorer(
-  { server, onStatusChange, onConnected, onConnectFailed, onLocalPathChange, onLocalSortChange, onRemoteSortChange },
+  {
+    server,
+    onStatusChange,
+    onConnected,
+    onConnectFailed,
+    onLocalPathChange,
+    onLocalSortChange,
+    onRemoteSortChange,
+    fontStyle = DEFAULT_FILES_SETTINGS.fontStyle,
+    fontSize = DEFAULT_FILES_SETTINGS.fontSize,
+  },
   ref
 ) {
   const stored = useExplorerStore.getState().getPaths(server.id, server.lastLocalPath)
@@ -670,6 +683,10 @@ const DualPaneExplorer = forwardRef<DualPaneExplorerHandle, DualPaneExplorerProp
     transferEntries(isUpload, payload.entries)
   }
 
+  const fileFontClass =
+    fontStyle === 'mono' ? 'font-mono' : fontStyle === 'sans' ? 'font-sans' : 'font-ubuntu'
+  const fileFontStyle = { fontSize: `${fontSize}px` } as const
+
   const renderList = (side: PaneSide) => {
     const entries = side === 'local' ? sortedLocal : sortedRemote
     const selected = getSelection(side)
@@ -702,9 +719,10 @@ const DualPaneExplorer = forwardRef<DualPaneExplorerHandle, DualPaneExplorerProp
 
     return (
       <div
-        className={`flex-1 overflow-auto text-sm font-mono min-h-0 flex flex-col ${
+        className={`flex-1 overflow-auto min-h-0 flex flex-col ${fileFontClass} ${
           dropTarget === side ? 'bg-accent/10 ring-1 ring-inset ring-accent/40' : ''
         }`}
+        style={fileFontStyle}
         onClick={() => clearPaneSelection(side)}
         onDragOver={e => onPaneDragOver(e, side)}
         onDragLeave={e => onPaneDragLeave(e, side)}
@@ -815,7 +833,7 @@ const DualPaneExplorer = forwardRef<DualPaneExplorerHandle, DualPaneExplorerProp
         <div className="border-r border-border flex flex-col bg-card/30 min-h-0">
           <div className="px-2 py-1 flex items-center gap-1 text-xs bg-muted/30 border-b">
             <button onClick={upLocal} className="p-0.5 hover:bg-muted"><ArrowUp className="h-3 w-3" /></button>
-            <span className="flex-1 truncate font-mono" title={localPath}>{localPath}</span>
+            <span className={`flex-1 truncate ${fileFontClass}`} title={localPath}>{localPath}</span>
             <button onClick={mkdirLocal} className="p-0.5 hover:bg-muted" title="New folder"><FolderPlus className="h-3 w-3" /></button>
           </div>
           {renderList('local')}
@@ -825,7 +843,7 @@ const DualPaneExplorer = forwardRef<DualPaneExplorerHandle, DualPaneExplorerProp
         <div className="flex flex-col bg-card/30 min-h-0">
           <div className="px-2 py-1 flex items-center gap-1 text-xs bg-muted/30 border-b">
             <button onClick={upRemote} className="p-0.5 hover:bg-muted"><ArrowUp className="h-3 w-3" /></button>
-            <span className="flex-1 truncate font-mono" title={remotePath}>{remotePath}</span>
+            <span className={`flex-1 truncate ${fileFontClass}`} title={remotePath}>{remotePath}</span>
             <button onClick={mkdirRemote} className="p-0.5 hover:bg-muted" title="New folder"><FolderPlus className="h-3 w-3" /></button>
           </div>
 

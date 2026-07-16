@@ -187,6 +187,9 @@ export interface AppInfo {
 /** Default max tokens for Ask AI history + prompts. */
 export const DEFAULT_CONTEXT_LENGTH = 32768
 
+/** Font used in the file explorer panes. */
+export type FileFontStyle = 'ubuntu' | 'mono' | 'sans'
+
 export interface AppSettings {
   theme: ThemePreference
   /** Seconds to wait when establishing a server connection (SSH/SFTP/FTP). */
@@ -207,6 +210,12 @@ export interface AppSettings {
     askBeforeRunningCommands: boolean
     /** Max context tokens for Ask AI (history + prompt). */
     contextLength: number
+  }
+  /** File explorer appearance. */
+  files: {
+    fontStyle: FileFontStyle
+    /** Font size in pixels for file listings. */
+    fontSize: number
   }
   keys: AuthKey[]
 }
@@ -250,15 +259,43 @@ export interface AICommandApprovalRequest {
   serverName?: string
 }
 
-export type SettingsSection = 'general' | 'ai' | 'auth'
+export type SettingsSection = 'general' | 'files' | 'ai' | 'auth'
 
 /** Default remote connection timeout in seconds. */
 export const DEFAULT_CONNECTION_TIMEOUT = 20
+
+/** Default file explorer font size in pixels (matches former text-sm). */
+export const DEFAULT_FILE_FONT_SIZE = 14
+
+export const DEFAULT_FILES_SETTINGS: AppSettings['files'] = {
+  fontStyle: 'ubuntu',
+  fontSize: DEFAULT_FILE_FONT_SIZE,
+}
 
 export function normalizeConnectionTimeout(value: unknown): number {
   const n = typeof value === 'number' ? value : Number(value)
   if (!Number.isFinite(n)) return DEFAULT_CONNECTION_TIMEOUT
   return Math.min(600, Math.max(1, Math.round(n)))
+}
+
+export function normalizeFileFontStyle(value: unknown): FileFontStyle {
+  if (value === 'mono' || value === 'sans' || value === 'ubuntu') return value
+  return DEFAULT_FILES_SETTINGS.fontStyle
+}
+
+export function normalizeFileFontSize(value: unknown): number {
+  const n = typeof value === 'number' ? value : Number(value)
+  if (!Number.isFinite(n)) return DEFAULT_FILE_FONT_SIZE
+  return Math.min(32, Math.max(10, Math.round(n)))
+}
+
+export function normalizeFilesSettings(
+  files: AppSettings['files'] | undefined
+): AppSettings['files'] {
+  return {
+    fontStyle: normalizeFileFontStyle(files?.fontStyle),
+    fontSize: normalizeFileFontSize(files?.fontSize),
+  }
 }
 
 export interface FileEntry {
