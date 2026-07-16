@@ -1,5 +1,6 @@
-import https from 'node:https'
 import OpenAI from 'openai'
+import type { ClientOptions } from 'openai'
+import { Agent, fetch as undiciFetch } from 'undici'
 import type { AppSettings, ConnectionStatus, Protocol, Server } from '../../shared/types'
 import { DEFAULT_CONTEXT_LENGTH } from '../../shared/types'
 
@@ -93,7 +94,9 @@ const RUN_SSH_COMMAND_TOOL: OpenAI.Chat.ChatCompletionTool = {
   },
 }
 
-const insecureLocalAgent = new https.Agent({ rejectUnauthorized: false })
+const insecureUndiciDispatcher = new Agent({
+  connect: { rejectUnauthorized: false },
+})
 
 function isLocalHttps(baseURL: string): boolean {
   try {
@@ -103,6 +106,16 @@ function isLocalHttps(baseURL: string): boolean {
     return host === 'localhost' || host === '127.0.0.1' || host === '::1'
   } catch {
     return false
+  }
+}
+
+/** Local HTTPS panels often use self-signed certs — bypass TLS verify via undici. */
+function localHttpsFetchOptions(baseURL: string): Partial<ClientOptions> {
+  if (!isLocalHttps(baseURL)) return {}
+  return {
+    // undici fetch is API-compatible; cast keeps OpenAI ClientOptions happy across Node typings
+    fetch: undiciFetch as unknown as ClientOptions['fetch'],
+    fetchOptions: { dispatcher: insecureUndiciDispatcher } as ClientOptions['fetchOptions'],
   }
 }
 
@@ -271,7 +284,7 @@ function createClient(ai: AIConfig): OpenAI {
     baseURL,
     timeout: 120_000,
     // Local HTTPS panels (LmPanel, etc.) often use self-signed certs
-    httpAgent: isLocalHttps(baseURL) ? insecureLocalAgent : undefined,
+    ...localHttpsFetchOptions(baseURL),
   })
 }
 
@@ -330,7 +343,7 @@ export async function listAIModels(ai: Pick<AIConfig, 'baseURL' | 'apiKey'>): Pr
     apiKey: ai.apiKey?.trim() || 'no-key',
     baseURL,
     timeout: 30_000,
-    httpAgent: isLocalHttps(baseURL) ? insecureLocalAgent : undefined,
+    ...localHttpsFetchOptions(baseURL),
   })
 
   const list = await client.models.list()
