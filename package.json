@@ -1,6 +1,6 @@
 {
   "name": "puppyftp",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "PuppyFTP — cute, fast, AI-powered FTP + SSH/SFTP desktop client",
   "main": "out/main/index.js",
   "author": {
