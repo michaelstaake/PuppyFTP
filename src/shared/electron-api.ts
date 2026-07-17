@@ -26,6 +26,7 @@ export type ElectronAPI = {
   openFileDialog: (options?: Electron.OpenDialogOptions) => Promise<Electron.OpenDialogReturnValue>
   openExternal: (url: string) => Promise<void>
   getAppInfo: () => Promise<AppInfo>
+  setTrayToolTip: (text: string) => Promise<boolean>
   getSystemTheme: () => Promise<ResolvedTheme>
   setThemeChrome: (resolved: ResolvedTheme) => Promise<boolean>
   onSystemThemeChange: (callback: (resolved: ResolvedTheme) => void) => () => void

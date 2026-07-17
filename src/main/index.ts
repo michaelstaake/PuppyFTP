@@ -515,6 +515,12 @@ ipcMain.handle('app:get-info', () => ({
   version: app.getVersion(),
   buildDate: typeof __BUILD_DATE__ !== 'undefined' ? __BUILD_DATE__ : new Date().toISOString().slice(0, 10),
 }))
+ipcMain.handle('tray:set-tooltip', (_, text: unknown) => {
+  if (typeof text !== 'string' || !tray) return false
+  // Windows tray tooltips are capped at 128 characters.
+  tray.setToolTip(text.slice(0, 128))
+  return true
+})
 ipcMain.handle('theme:get-system', (): ResolvedTheme => nativeTheme.shouldUseDarkColors ? 'dark' : 'light')
 ipcMain.handle('theme:set-chrome', (_, resolved: ResolvedTheme) => {
   const preference = normalizeTheme(readJsonSync(SETTINGS_PATH, DEFAULT_SETTINGS).theme)
@@ -1434,7 +1440,7 @@ if (gotTheLock) {
           { type: "separator" },
           { label: "Quit", click: () => { tray?.destroy(); app.quit() } }
         ])
-        tray.setToolTip("PuppyFTP")
+        tray.setToolTip(`PuppyFTP ${app.getVersion()}`)
         tray.setContextMenu(contextMenu)
         tray.on("click", () => {
           if (mainWindow) {

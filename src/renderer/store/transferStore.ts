@@ -5,7 +5,7 @@ import type {
   TransferJob,
   TransferProgressEvent,
 } from '@shared/types'
-import { fileNameFromPath } from '../lib/transferFormat'
+import { fileNameFromPath, formatTrayToolTip } from '../lib/transferFormat'
 
 const MAX_CONCURRENT = 2
 const MAX_HISTORY = 200
@@ -273,6 +273,15 @@ export function getActiveTransferCount(transfers: TransferJob[]): number {
   return transfers.filter(t => t.status === 'queued' || t.status === 'transferring').length
 }
 
+export function getRemainingTransferBytes(transfers: TransferJob[]): number {
+  return transfers
+    .filter(t => t.status === 'queued' || t.status === 'transferring')
+    .reduce((sum, t) => {
+      if (t.bytesTotal <= 0) return sum
+      return sum + Math.max(0, t.bytesTotal - t.bytesTransferred)
+    }, 0)
+}
+
 export function getCurrentTransfers(transfers: TransferJob[]): TransferJob[] {
   return transfers
     .filter(t => t.status === 'queued' || t.status === 'transferring')
@@ -281,3 +290,36 @@ export function getCurrentTransfers(transfers: TransferJob[]): TransferJob[] {
       return a.createdAt - b.createdAt
     })
 }
+
+let trayAppVersion = ''
+let lastTrayToolTip = ''
+
+function syncTrayToolTip(transfers: TransferJob[]): void {
+  const setTrayToolTip = window.electronAPI?.setTrayToolTip
+  if (!setTrayToolTip) return
+
+  const apply = (version: string) => {
+    const tip = formatTrayToolTip(
+      getActiveTransferCount(transfers),
+      getRemainingTransferBytes(transfers),
+      version
+    )
+    if (tip === lastTrayToolTip) return
+    lastTrayToolTip = tip
+    void setTrayToolTip(tip)
+  }
+
+  if (trayAppVersion) {
+    apply(trayAppVersion)
+    return
+  }
+
+  void window.electronAPI.getAppInfo?.().then(info => {
+    trayAppVersion = info?.version || '0.0.0'
+    apply(trayAppVersion)
+  })
+}
+
+useTransferStore.subscribe(state => {
+  syncTrayToolTip(state.transfers)
+})

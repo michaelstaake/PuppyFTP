@@ -27,6 +27,8 @@ const api: ElectronAPI = {
   openFileDialog: (options?: Electron.OpenDialogOptions) => ipcRenderer.invoke('dialog:open-file', options),
   openExternal: (url: string) => ipcRenderer.invoke('shell:open-external', url),
   getAppInfo: (): Promise<AppInfo> => ipcRenderer.invoke('app:get-info'),
+  setTrayToolTip: (text: string): Promise<boolean> =>
+    ipcRenderer.invoke('tray:set-tooltip', text),
   getSystemTheme: (): Promise<ResolvedTheme> => ipcRenderer.invoke('theme:get-system'),
   setThemeChrome: (resolved: ResolvedTheme): Promise<boolean> =>
     ipcRenderer.invoke('theme:set-chrome', resolved),

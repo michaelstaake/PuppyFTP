@@ -13,6 +13,16 @@ export function formatBytes(bytes: number): string {
   return `${value.toFixed(digits)} ${units[i]}`
 }
 
+/** System tray hover text: transfer summary, or app name + version when idle. */
+export function formatTrayToolTip(
+  activeCount: number,
+  remainingBytes: number,
+  version: string
+): string {
+  if (activeCount <= 0) return `PuppyFTP ${version}`
+  return `${activeCount} Files Transferring\n${formatBytes(remainingBytes)} Remaining`
+}
+
 /** Human-readable transfer speed. */
 export function formatSpeed(bps: number): string {
   if (!Number.isFinite(bps) || bps <= 0) return '—'
