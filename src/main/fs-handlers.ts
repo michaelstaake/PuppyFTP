@@ -821,7 +821,9 @@ export function registerFsHandlers(userDataPath: string, mainWindowRef: { curren
     }> = []
     for (const entry of entries) {
       if (!entry?.name || !entry?.path) continue
-      const safeName = entry.name.replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_')
+      const safeName = [...entry.name]
+        .map((c) => (/[<>:"/\\|?*]/.test(c) || c.charCodeAt(0) <= 0x1f ? '_' : c))
+        .join('')
       if (!safeName || safeName === '.' || safeName === '..') continue
       const localPath = path.join(stagingRoot, safeName)
       try {
