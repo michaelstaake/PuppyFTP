@@ -55,6 +55,10 @@ const DEFAULT_SORT: ExplorerSortPreference = { column: 'name', direction: 'asc' 
 
 const SORT_COLUMNS: ExplorerSortColumn[] = ['name', 'size', 'type', 'mtime', 'permissions']
 
+const DEFAULT_NAME_COL_WIDTH = 220
+const MIN_NAME_COL_WIDTH = 80
+const MAX_NAME_COL_WIDTH = 600
+
 function normalizeSort(
   sort?: ExplorerSortPreference | null,
   side: PaneSide = 'local'
@@ -194,6 +198,8 @@ const DualPaneExplorer = forwardRef<DualPaneExplorerHandle, DualPaneExplorerProp
   const [permissionsEntry, setPermissionsEntry] = useState<FileEntry | null>(null)
   const [dropTarget, setDropTarget] = useState<PaneSide | null>(null)
   const dragPayloadRef = useRef<DragPayload | null>(null)
+  const [localNameWidth, setLocalNameWidth] = useState(DEFAULT_NAME_COL_WIDTH)
+  const [remoteNameWidth, setRemoteNameWidth] = useState(DEFAULT_NAME_COL_WIDTH)
 
   // Phase 4
   const [cachedTree, setCachedTree] = useState<Record<string, RemoteCacheEntry>>({})
@@ -227,6 +233,32 @@ const DualPaneExplorer = forwardRef<DualPaneExplorerHandle, DualPaneExplorerProp
       return next
     })
   }, [server.id])
+
+  const startNameColResize = useCallback((side: PaneSide, e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    const startX = e.clientX
+    const startWidth = side === 'local' ? localNameWidth : remoteNameWidth
+    const setWidth = side === 'local' ? setLocalNameWidth : setRemoteNameWidth
+
+    const onMove = (ev: MouseEvent) => {
+      const next = Math.min(
+        MAX_NAME_COL_WIDTH,
+        Math.max(MIN_NAME_COL_WIDTH, startWidth + (ev.clientX - startX))
+      )
+      setWidth(next)
+    }
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup', onUp)
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+  }, [localNameWidth, remoteNameWidth])
 
   const refreshLocal = useCallback(async (p = localPath) => {
     try {
@@ -692,6 +724,7 @@ const DualPaneExplorer = forwardRef<DualPaneExplorerHandle, DualPaneExplorerProp
     const selected = getSelection(side)
     const isLocal = side === 'local'
     const sort = isLocal ? localSort : remoteSort
+    const nameWidth = isLocal ? localNameWidth : remoteNameWidth
 
     const headerBtn = (column: ExplorerSortColumn, label: string, className: string) => {
       const active = sort.column === column
@@ -730,11 +763,22 @@ const DualPaneExplorer = forwardRef<DualPaneExplorerHandle, DualPaneExplorerProp
       >
         <div className="sticky top-0 z-10 flex items-center gap-2 px-2 py-1 text-[10px] uppercase tracking-wide bg-card/95 border-b border-border select-none">
           <span className="w-4 shrink-0" aria-hidden />
-          {headerBtn('name', 'Name', 'flex-1 min-w-0 justify-start')}
+          <div className="relative shrink-0 min-w-0" style={{ width: nameWidth }}>
+            {headerBtn('name', 'Name', 'w-full min-w-0 justify-start pr-1')}
+            <div
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize name column"
+              title="Drag to resize"
+              className="absolute -right-1 top-0 bottom-0 w-2 cursor-col-resize z-10"
+              onMouseDown={e => startNameColResize(side, e)}
+            />
+          </div>
           {headerBtn('size', 'Size', 'w-14 justify-end shrink-0')}
           {headerBtn('type', 'Type', 'w-12 justify-start shrink-0')}
           {headerBtn('mtime', 'Last modified', 'w-[7.5rem] justify-start shrink-0')}
           {!isLocal && headerBtn('permissions', 'Permissions', 'w-[5.5rem] justify-start shrink-0')}
+          <span className="flex-1 min-w-0" aria-hidden />
           <span className="w-8 shrink-0" aria-hidden />
         </div>
         <div className="flex-1 p-1 min-h-0">
@@ -767,7 +811,10 @@ const DualPaneExplorer = forwardRef<DualPaneExplorerHandle, DualPaneExplorerProp
                 ) : (
                   <FileIcon className="h-4 w-4 shrink-0 text-muted-foreground pointer-events-none" aria-hidden />
                 )}
-                <span className="flex-1 min-w-0 overflow-x-hidden text-ellipsis whitespace-nowrap pointer-events-none">
+                <span
+                  className="shrink-0 min-w-0 overflow-x-hidden text-ellipsis whitespace-nowrap pointer-events-none"
+                  style={{ width: nameWidth }}
+                >
                   {e.name}
                 </span>
                 <span className="text-[10px] text-muted-foreground w-14 text-right pointer-events-none shrink-0">
@@ -784,6 +831,7 @@ const DualPaneExplorer = forwardRef<DualPaneExplorerHandle, DualPaneExplorerProp
                     {e.permissions || ''}
                   </span>
                 )}
+                <span className="flex-1 min-w-0" aria-hidden />
                 <button
                   type="button"
                   onClick={ev => {
