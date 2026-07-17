@@ -194,8 +194,15 @@ const XTerm = forwardRef<XTermHandle, XTermProps>(function XTerm(
         window.addEventListener('resize', onResize)
         setTimeout(onResize, 150)
 
+        const ro =
+          typeof ResizeObserver !== 'undefined' && containerRef.current
+            ? new ResizeObserver(() => onResize())
+            : null
+        if (ro && containerRef.current) ro.observe(containerRef.current)
+
         const cleanup = () => {
           window.removeEventListener('resize', onResize)
+          ro?.disconnect()
           unsubData()
           unsubExit()
           if (sessionIdRef.current) {

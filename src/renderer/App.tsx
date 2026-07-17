@@ -72,6 +72,8 @@ function titleFromQuery(query: string): string {
 
 const App: FC = () => {
   const [servers, setServers] = useState<Server[]>([])
+  const serversRef = useRef(servers)
+  serversRef.current = servers
   const [categories, setCategories] = useState<Category[]>([])
   const [selectedServerId, setSelectedServerId] = useState<string | null>(null)
   /** Per-server session status. Absent = disconnected. */
@@ -791,6 +793,10 @@ const App: FC = () => {
 
   useEffect(() => {
     const unsub = window.electronAPI?.onRemoteConnectionLost?.(serverId => {
+      // SFTP sidebar on an SSH shell is auxiliary — don't tear down the terminal UI
+      // if only the SFTP channel drops.
+      const server = serversRef.current.find(s => s.id === serverId)
+      if (server?.protocol === 'ssh') return
       markConnectionLost(serverId)
     })
     return () => {

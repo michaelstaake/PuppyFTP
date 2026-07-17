@@ -10,9 +10,11 @@ import {
   SquareArrowOutUpRight,
   SquareArrowDownLeft,
   EllipsisVertical,
+  Folder,
 } from 'lucide-react'
 import XTerm, { XTermHandle } from '../terminal/XTerm'
 import DualPaneExplorer, { DualPaneExplorerHandle } from '../explorer/DualPaneExplorer'
+import SshSftpSidebar from '../explorer/SshSftpSidebar'
 import TerminalActionsMenu, { TerminalMenuAnchor } from '../terminal/TerminalActionsMenu'
 import RdpViewer from '../rdp/RdpViewer'
 
@@ -86,6 +88,10 @@ const MainArea: React.FC<MainAreaProps> = ({
   const [appVersion, setAppVersion] = React.useState<string | null>(null)
   const [terminalMenu, setTerminalMenu] = React.useState<TerminalMenuAnchor | null>(null)
   const [rdpConnectError, setRdpConnectError] = React.useState<string | null>(null)
+  /** Per-server SFTP directory sidebar open state (SSH network sessions only). */
+  const [sftpSidebarOpenByServerId, setSftpSidebarOpenByServerId] = React.useState<
+    Record<string, boolean>
+  >({})
 
   const handleExplorerStatus = React.useCallback((status: { loading: boolean; isExploring: boolean }) => {
     setExplorerStatus(status)
@@ -128,6 +134,12 @@ const MainArea: React.FC<MainAreaProps> = ({
       })
       return
     }
+    // Sidebar shares the terminal pane — close it before detaching.
+    setSftpSidebarOpenByServerId(prev => {
+      if (!prev[id]) return prev
+      void window.electronAPI?.disconnectRemote?.(id).catch(() => {})
+      return { ...prev, [id]: false }
+    })
     const handle = xtermRefs.current[id]
     handle?.prepareDetach()
     const scrollback = handle?.serialize() ?? ''
@@ -142,6 +154,46 @@ const MainArea: React.FC<MainAreaProps> = ({
   React.useEffect(() => {
     if (!isConnecting && !isConnectionFailed) setRdpConnectError(null)
   }, [isConnecting, isConnectionFailed, server?.id])
+
+  const toggleSftpSidebar = React.useCallback(() => {
+    if (!server || server.protocol !== 'ssh' || isSerialConnection(server)) return
+    const id = server.id
+    setSftpSidebarOpenByServerId(prev => {
+      const nextOpen = !prev[id]
+      if (!nextOpen) {
+        void window.electronAPI?.disconnectRemote?.(id).catch(() => {})
+      }
+      return { ...prev, [id]: nextOpen }
+    })
+  }, [server])
+
+  // Close SFTP sidebar when leaving SSH / disconnecting
+  React.useEffect(() => {
+    if (!server) return
+    if (server.protocol !== 'ssh' || isSerialConnection(server) || !isConnected) {
+      setSftpSidebarOpenByServerId(prev => {
+        if (!server.id || !prev[server.id]) return prev
+        const next = { ...prev }
+        delete next[server.id]
+        return next
+      })
+    }
+  }, [server, isConnected])
+
+  React.useEffect(() => {
+    const connectedIds = new Set(connectedServers.map(s => s.id))
+    setSftpSidebarOpenByServerId(prev => {
+      let changed = false
+      const next = { ...prev }
+      for (const id of Object.keys(next)) {
+        if (next[id] && !connectedIds.has(id)) {
+          delete next[id]
+          changed = true
+        }
+      }
+      return changed ? next : prev
+    })
+  }, [connectedServers])
 
   if (!server) {
     return (
@@ -166,8 +218,11 @@ const MainArea: React.FC<MainAreaProps> = ({
     server.protocol === 'ftps-implicit'
 
   const isTerminal = isTerminalProtocol(server.protocol)
+  const isSshNetwork =
+    server.protocol === 'ssh' && !isSerialConnection(server)
   const isRdpDesktop = server.protocol === 'rdp'
   const isPoppedOut = !!poppedOutByServerId[server.id]
+  const sftpSidebarOpen = isSshNetwork && !!sftpSidebarOpenByServerId[server.id]
   const sessionOpen = isConnected || isConnecting || isConnectionLost || isConnectionFailed
   // RDP uses an external mstsc window + its own status UI — don't blank the pane.
   const blockContent =
@@ -254,6 +309,23 @@ const MainArea: React.FC<MainAreaProps> = ({
               className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted"
             >
               <Unplug className="h-4 w-4" />
+            </button>
+          )}
+
+          {isConnected && isSshNetwork && !isPoppedOut && (
+            <button
+              type="button"
+              onClick={toggleSftpSidebar}
+              title={sftpSidebarOpen ? 'Hide remote files' : 'Show remote files (SFTP)'}
+              aria-label={sftpSidebarOpen ? 'Hide remote files' : 'Show remote files'}
+              aria-pressed={sftpSidebarOpen}
+              className={`p-1.5 rounded-md ${
+                sftpSidebarOpen
+                  ? 'bg-accent/15 text-accent'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+              }`}
+            >
+              <Folder className="h-4 w-4" />
             </button>
           )}
 
@@ -388,20 +460,37 @@ const MainArea: React.FC<MainAreaProps> = ({
               aria-hidden={!isActive || sPoppedOut}
             >
               {sIsTerminal && !sPoppedOut && (
-                <XTerm
-                  ref={handle => {
-                    xtermRefs.current[s.id] = handle
-                  }}
-                  server={s}
-                  existingSessionId={attachSessionId}
-                  active={isActive || (isConnecting && s.id === server.id)}
-                  onConnected={() => {
-                    if (attachSessionId) onAttachConsumed(s.id)
-                    onSessionConnected(s.id)
-                  }}
-                  onConnectFailed={() => onSessionFailed(s.id)}
-                  onDisconnected={() => onSessionClosed(s.id)}
-                />
+                <div className="h-full w-full flex min-h-0">
+                  <div className="flex-1 min-w-0 min-h-0">
+                    <XTerm
+                      ref={handle => {
+                        xtermRefs.current[s.id] = handle
+                      }}
+                      server={s}
+                      existingSessionId={attachSessionId}
+                      active={isActive || (isConnecting && s.id === server.id)}
+                      onConnected={() => {
+                        if (attachSessionId) onAttachConsumed(s.id)
+                        onSessionConnected(s.id)
+                      }}
+                      onConnectFailed={() => onSessionFailed(s.id)}
+                      onDisconnected={() => onSessionClosed(s.id)}
+                    />
+                  </div>
+                  {s.protocol === 'ssh' &&
+                    !isSerialConnection(s) &&
+                    !!sftpSidebarOpenByServerId[s.id] && (
+                      <SshSftpSidebar
+                        server={s}
+                        open
+                        onClose={() =>
+                          setSftpSidebarOpenByServerId(prev => ({ ...prev, [s.id]: false }))
+                        }
+                        fontStyle={fileFontStyle}
+                        fontSize={fileFontSize}
+                      />
+                    )}
+                </div>
               )}
               {sIsRdp && (
                 <RdpViewer
