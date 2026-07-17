@@ -198,6 +198,10 @@ const DualPaneExplorer = forwardRef<DualPaneExplorerHandle, DualPaneExplorerProp
   const [permissionsEntry, setPermissionsEntry] = useState<FileEntry | null>(null)
   const [dropTarget, setDropTarget] = useState<PaneSide | null>(null)
   const dragPayloadRef = useRef<DragPayload | null>(null)
+  /** True while primary button is held — used to start OS drag after remote prepare. */
+  const pointerDownRef = useRef(false)
+  const remoteDragSessionRef = useRef(0)
+  const [preparingDrag, setPreparingDrag] = useState(false)
   const [localNameWidth, setLocalNameWidth] = useState(DEFAULT_NAME_COL_WIDTH)
   const [remoteNameWidth, setRemoteNameWidth] = useState(DEFAULT_NAME_COL_WIDTH)
 
@@ -375,6 +379,25 @@ const DualPaneExplorer = forwardRef<DualPaneExplorerHandle, DualPaneExplorerProp
       void refreshRemote()
     }
   }, [transfers, server.id, refreshLocal, refreshRemote])
+
+  // Track pointer so we only start OS drag-out if the user is still holding.
+  useEffect(() => {
+    const onDown = () => { pointerDownRef.current = true }
+    const onUp = () => {
+      pointerDownRef.current = false
+      remoteDragSessionRef.current += 1
+      setPreparingDrag(false)
+      window.electronAPI.cancelNativeDrag()
+    }
+    window.addEventListener('pointerdown', onDown, true)
+    window.addEventListener('pointerup', onUp, true)
+    window.addEventListener('pointercancel', onUp, true)
+    return () => {
+      window.removeEventListener('pointerdown', onDown, true)
+      window.removeEventListener('pointerup', onUp, true)
+      window.removeEventListener('pointercancel', onUp, true)
+    }
+  }, [])
 
   // Close context menu on outside click / escape
   useEffect(() => {
@@ -663,7 +686,24 @@ const DualPaneExplorer = forwardRef<DualPaneExplorerHandle, DualPaneExplorerProp
     setContextMenu({ x: e.clientX, y: e.clientY, side, entry })
   }
 
-  // Drag and drop
+  // Drag and drop (pane↔pane + OS↔app)
+  const hasOsFiles = (e: React.DragEvent) =>
+    Array.from(e.dataTransfer.types).includes('Files')
+
+  const importOsPaths = async (side: PaneSide, paths: string[]) => {
+    if (paths.length === 0) return
+    if (side === 'local') {
+      const ok = await window.electronAPI.copyLocalInto(paths, localPath)
+      if (ok) void refreshLocal()
+      return
+    }
+    for (const p of paths) {
+      const entry = await window.electronAPI.statLocal(p)
+      if (!entry) continue
+      await transferEntry(true, entry)
+    }
+  }
+
   const onRowDragStart = (e: React.DragEvent, side: PaneSide, entry: FileEntry) => {
     const selected = getSelection(side)
     let entries: FileEntry[]
@@ -679,20 +719,62 @@ const DualPaneExplorer = forwardRef<DualPaneExplorerHandle, DualPaneExplorerProp
     }
     const payload: DragPayload = { side, entries }
     dragPayloadRef.current = payload
-    e.dataTransfer.setData(DND_MIME, JSON.stringify(payload))
-    e.dataTransfer.setData('text/plain', entries.map(f => f.name).join(', '))
-    e.dataTransfer.effectAllowed = 'copy'
+
+    // Native drag-out requires preventDefault; drops back into the app arrive as Files.
+    e.preventDefault()
+
+    if (side === 'local') {
+      window.electronAPI.startNativeDrag({
+        kind: 'local',
+        paths: entries.map(en => en.path),
+      })
+      return
+    }
+
+    // Remote → OS: download fully first (startDrag blocks the main process, so we
+    // cannot fill files during the gesture), then start native drag if still holding.
+    const session = ++remoteDragSessionRef.current
+    pointerDownRef.current = true
+    setPreparingDrag(true)
+    void (async () => {
+      try {
+        const paths = await window.electronAPI.prepareRemoteDrag(
+          server.id,
+          entries.map(en => ({
+            name: en.name,
+            path: en.path,
+            type: en.type,
+            size: en.size,
+          }))
+        )
+        if (session !== remoteDragSessionRef.current) return
+        if (!pointerDownRef.current) return
+        if (!paths || paths.length === 0) return
+        window.electronAPI.startNativeDrag({ kind: 'local', paths })
+      } catch (err) {
+        console.warn('prepareRemoteDrag failed', err)
+      } finally {
+        if (session === remoteDragSessionRef.current) setPreparingDrag(false)
+      }
+    })()
   }
 
   const onPaneDragOver = (e: React.DragEvent, side: PaneSide) => {
-    const raw = e.dataTransfer.types.includes(DND_MIME) || dragPayloadRef.current
-    if (!raw) return
-    const payload = dragPayloadRef.current
-    // Only allow drops from the opposite pane
-    if (payload && payload.side === side) return
-    e.preventDefault()
-    e.dataTransfer.dropEffect = 'copy'
-    setDropTarget(side)
+    const internal = e.dataTransfer.types.includes(DND_MIME) || dragPayloadRef.current
+    if (internal) {
+      const payload = dragPayloadRef.current
+      // Only allow drops from the opposite pane
+      if (payload && payload.side === side) return
+      e.preventDefault()
+      e.dataTransfer.dropEffect = 'copy'
+      setDropTarget(side)
+      return
+    }
+    if (hasOsFiles(e)) {
+      e.preventDefault()
+      e.dataTransfer.dropEffect = 'copy'
+      setDropTarget(side)
+    }
   }
 
   const onPaneDragLeave = (e: React.DragEvent, side: PaneSide) => {
@@ -709,10 +791,29 @@ const DualPaneExplorer = forwardRef<DualPaneExplorerHandle, DualPaneExplorerProp
       const raw = e.dataTransfer.getData(DND_MIME)
       if (raw) payload = JSON.parse(raw) as DragPayload
     } catch { /* use ref */ }
+
+    if (payload && payload.side !== side) {
+      dragPayloadRef.current = null
+      const isUpload = payload.side === 'local'
+      transferEntries(isUpload, payload.entries)
+      return
+    }
     dragPayloadRef.current = null
-    if (!payload || payload.side === side) return
-    const isUpload = payload.side === 'local'
-    transferEntries(isUpload, payload.entries)
+
+    // OS → app drop (Explorer/desktop files into a pane)
+    const fileList = e.dataTransfer.files
+    if (!fileList || fileList.length === 0) return
+    const paths: string[] = []
+    for (let i = 0; i < fileList.length; i++) {
+      try {
+        const p = window.electronAPI.getPathForFile(fileList[i])
+        if (p) paths.push(p)
+      } catch (err) {
+        console.warn('getPathForFile failed', err)
+      }
+    }
+    if (paths.length === 0) return
+    void importOsPaths(side, paths)
   }
 
   const fileFontClass =
@@ -802,6 +903,8 @@ const DualPaneExplorer = forwardRef<DualPaneExplorerHandle, DualPaneExplorerProp
                 onContextMenu={ev => openContextMenu(ev, side, e, idx)}
                 onDragStart={ev => onRowDragStart(ev, side, e)}
                 onDragEnd={() => {
+                  // Note: with preventDefault() on dragstart, dragend may fire
+                  // immediately — do not cancel remote prepare here.
                   dragPayloadRef.current = null
                   setDropTarget(null)
                 }}
@@ -892,6 +995,9 @@ const DualPaneExplorer = forwardRef<DualPaneExplorerHandle, DualPaneExplorerProp
           <div className="px-2 py-1 flex items-center gap-1 text-xs bg-muted/30 border-b">
             <button onClick={upRemote} className="p-0.5 hover:bg-muted"><ArrowUp className="h-3 w-3" /></button>
             <span className={`flex-1 truncate ${fileFontClass}`} title={remotePath}>{remotePath}</span>
+            {preparingDrag && (
+              <span className="text-[10px] text-accent shrink-0 animate-pulse">Preparing drag…</span>
+            )}
             <button onClick={mkdirRemote} className="p-0.5 hover:bg-muted" title="New folder"><FolderPlus className="h-3 w-3" /></button>
           </div>
 

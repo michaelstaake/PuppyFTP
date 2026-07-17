@@ -307,6 +307,15 @@ export interface FileEntry {
   path: string;
 }
 
+/** Payload for dragging files out of the app into the OS (Explorer/Finder). */
+export type NativeDragRequest =
+  | { kind: 'local'; paths: string[] }
+  | {
+      kind: 'remote'
+      serverId: string
+      entries: Array<Pick<FileEntry, 'name' | 'path' | 'type' | 'size'>>
+    }
+
 export type TransferDirection = 'up' | 'down'
 
 export type TransferStatus = 'queued' | 'transferring' | 'completed' | 'failed'

@@ -7,6 +7,7 @@ import type {
   Category,
   ExploreProgressEvent,
   FileEntry,
+  NativeDragRequest,
   RemoteCacheEntry,
   ResolvedTheme,
   SerialPortInfo,
@@ -93,6 +94,23 @@ export type ElectronAPI = {
   renameLocal: (oldPath: string, newPath: string) => Promise<boolean>
   renameRemote: (serverId: string, oldPath: string, newPath: string) => Promise<boolean>
   chmodRemote: (serverId: string, filePath: string, mode: number | string) => Promise<boolean>
+  /** Resolve an OS File (from drag/drop) to an absolute filesystem path. */
+  getPathForFile: (file: File) => string
+  statLocal: (filePath: string) => Promise<FileEntry | null>
+  /** Copy files/folders into a local directory (OS → local pane). */
+  copyLocalInto: (sources: string[], destDir: string) => Promise<boolean>
+  /**
+   * Download remote entries to a temp folder for OS drag-out.
+   * Returns local paths once fully staged (or null on failure).
+   */
+  prepareRemoteDrag: (
+    serverId: string,
+    entries: Array<Pick<FileEntry, 'name' | 'path' | 'type' | 'size'>>
+  ) => Promise<string[] | null>
+  /** Start an OS-native drag-out with local filesystem paths. */
+  startNativeDrag: (request: NativeDragRequest) => void
+  /** Cancel an in-flight remote drag prepare so a late startDrag is skipped. */
+  cancelNativeDrag: () => void
   uploadFile: (
     serverId: string,
     localPath: string,

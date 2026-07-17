@@ -1,16 +1,18 @@
-import { ipcMain } from 'electron'
+import { app, ipcMain, nativeImage } from 'electron'
 import type { BrowserWindow } from 'electron'
 import * as fsPromises from 'fs/promises'
 import * as path from 'path'
+import * as os from 'os'
 import * as ftp from 'basic-ftp'
 import SftpClient from 'ssh2-sftp-client'
-import { createReadStream, createWriteStream, readFileSync } from 'fs'
+import { createReadStream, createWriteStream, readFileSync, writeFileSync, mkdirSync, copyFileSync, cpSync, statSync } from 'fs'
 import { Transform } from 'stream'
 import { finished } from 'stream/promises'
 import {
   Server,
   AppSettings,
   FileEntry,
+  NativeDragRequest,
   RemoteCacheEntry,
   ExploreProgressEvent,
   normalizeConnectionTimeout,
@@ -317,6 +319,47 @@ export function registerFsHandlers(userDataPath: string, mainWindowRef: { curren
       return []
     }
   })
+
+  ipcMain.handle('fs:stat-local', async (_, filePath: string): Promise<FileEntry | null> => {
+    if (typeof filePath !== 'string' || !filePath.trim()) return null
+    try {
+      const stat = await fsPromises.stat(filePath)
+      return {
+        name: path.basename(filePath),
+        type: stat.isDirectory() ? 'dir' : 'file',
+        size: stat.size,
+        mtime: stat.mtimeMs,
+        path: filePath,
+      }
+    } catch {
+      return null
+    }
+  })
+
+  ipcMain.handle(
+    'fs:copy-local-into',
+    async (_, sources: string[], destDir: string): Promise<boolean> => {
+      if (!Array.isArray(sources) || typeof destDir !== 'string' || !destDir.trim()) return false
+      try {
+        await fsPromises.mkdir(destDir, { recursive: true })
+        for (const src of sources) {
+          if (typeof src !== 'string' || !src.trim()) continue
+          const name = path.basename(src)
+          if (!name || name === '.' || name === '..') continue
+          const dest = path.join(destDir, name)
+          // Avoid copying a folder into itself / overlapping paths.
+          const srcNorm = path.resolve(src)
+          const destNorm = path.resolve(dest)
+          if (srcNorm === destNorm || destNorm.startsWith(srcNorm + path.sep)) continue
+          await fsPromises.cp(srcNorm, destNorm, { recursive: true, force: true })
+        }
+        return true
+      } catch (e) {
+        console.error('fs:copy-local-into', e)
+        return false
+      }
+    }
+  )
 
   ipcMain.handle('fs:list-remote', async (_, serverId: string, dirPath: string): Promise<FileEntry[] | null> => {
     const servers = readServers()
@@ -735,5 +778,200 @@ export function registerFsHandlers(userDataPath: string, mainWindowRef: { curren
     activeExplores.delete(serverId)
     dropRemoteClient(serverId)
     return true
+  })
+
+  // --- Native OS drag-out (Explorer/Finder) ---
+  let nativeDragGeneration = 0
+
+  function resolveDragIcon(): Electron.NativeImage {
+    const candidates = [
+      path.join(app.getAppPath(), 'public', 'logo-icon.png'),
+      path.join(__dirname, '../renderer/logo-icon.png'),
+      path.join(process.cwd(), 'public', 'logo-icon.png'),
+    ]
+    for (const candidate of candidates) {
+      try {
+        const img = nativeImage.createFromPath(candidate)
+        if (!img.isEmpty()) return img
+      } catch {
+        /* try next */
+      }
+    }
+    // 16x16 blue PNG fallback (macOS requires a non-empty icon).
+    return nativeImage.createFromDataURL(
+      'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAHUlEQVQ4T2NkYGD4z0ABYBzVMKoBVAOGbwQDAF6uAf8Mk8cYAAAAAElFTkSuQmCC'
+    )
+  }
+
+  function createRemoteDragPlaceholdersSync(
+    entries: Array<Pick<FileEntry, 'name' | 'path' | 'type' | 'size'>>
+  ): {
+    stagingRoot: string
+    items: Array<{ entry: Pick<FileEntry, 'name' | 'path' | 'type' | 'size'>; localPath: string }>
+  } {
+    const stagingRoot = path.join(
+      os.tmpdir(),
+      'puppyftp-drag',
+      `Remote_${Date.now().toString(36)}`
+    )
+    mkdirSync(stagingRoot, { recursive: true })
+    const items: Array<{
+      entry: Pick<FileEntry, 'name' | 'path' | 'type' | 'size'>
+      localPath: string
+    }> = []
+    for (const entry of entries) {
+      if (!entry?.name || !entry?.path) continue
+      const safeName = entry.name.replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_')
+      if (!safeName || safeName === '.' || safeName === '..') continue
+      const localPath = path.join(stagingRoot, safeName)
+      try {
+        if (entry.type === 'dir') {
+          mkdirSync(localPath, { recursive: true })
+        } else {
+          writeFileSync(localPath, Buffer.alloc(0))
+        }
+        items.push({ entry, localPath })
+      } catch (e) {
+        console.warn('drag placeholder failed', localPath, e)
+      }
+    }
+    return { stagingRoot, items }
+  }
+
+  async function fillRemoteDragPlaceholders(
+    serverId: string,
+    items: Array<{ entry: Pick<FileEntry, 'name' | 'path' | 'type' | 'size'>; localPath: string }>
+  ): Promise<void> {
+    const servers = readServers()
+    const server = servers.find(s => s.id === serverId)
+    if (!server) throw new Error('Server not found')
+
+    const client = await getRemoteClient(server, mainWindowRef)
+    const listable: Listable = client
+
+    const downloadFile = async (remotePath: string, localPath: string) => {
+      await fsPromises.mkdir(path.dirname(localPath), { recursive: true })
+      if (isSftpClient(client)) {
+        await client.get(remotePath, localPath)
+      } else {
+        await client.downloadTo(localPath, remotePath)
+      }
+    }
+
+    const downloadDir = async (remoteDir: string, localDir: string) => {
+      await fsPromises.mkdir(localDir, { recursive: true })
+      const itemsInDir = await listable.list(remoteDir)
+      for (const item of itemsInDir) {
+        const childRemote = toChildPath(server.protocol, remoteDir, item.name)
+        const childLocal = path.join(localDir, item.name)
+        if (isDirType(item.type)) {
+          await downloadDir(childRemote, childLocal)
+        } else {
+          await downloadFile(childRemote, childLocal)
+        }
+      }
+    }
+
+    for (const { entry, localPath } of items) {
+      if (!entry?.path || !localPath) continue
+      if (entry.type === 'dir') {
+        await downloadDir(entry.path, localPath)
+      } else {
+        await downloadFile(entry.path, localPath)
+      }
+    }
+  }
+
+  ipcMain.handle(
+    'fs:prepare-remote-drag',
+    async (
+      _,
+      serverId: string,
+      entries: Array<Pick<FileEntry, 'name' | 'path' | 'type' | 'size'>>
+    ): Promise<string[] | null> => {
+      const generation = nativeDragGeneration
+      try {
+        if (typeof serverId !== 'string' || !Array.isArray(entries) || entries.length === 0) {
+          return null
+        }
+        const { stagingRoot, items } = createRemoteDragPlaceholdersSync(entries)
+        if (items.length === 0) return null
+        await fillRemoteDragPlaceholders(serverId, items)
+        if (generation !== nativeDragGeneration) {
+          void fsPromises.rm(stagingRoot, { recursive: true, force: true }).catch(() => {})
+          return null
+        }
+        setTimeout(() => {
+          void fsPromises.rm(stagingRoot, { recursive: true, force: true }).catch(() => {})
+        }, 15 * 60 * 1000)
+        // On Windows multi-file, return the staging folder so startDrag can use a single path.
+        if (items.length > 1 && process.platform !== 'darwin') {
+          return [stagingRoot]
+        }
+        return items.map(i => i.localPath)
+      } catch (e) {
+        console.warn('fs:prepare-remote-drag failed', e)
+        return null
+      }
+    }
+  )
+
+  ipcMain.on('fs:cancel-native-drag', () => {
+    nativeDragGeneration += 1
+  })
+
+  // startDrag blocks until the OS gesture ends — only pass paths that already exist.
+  ipcMain.on('fs:start-native-drag', (event, request: NativeDragRequest) => {
+    try {
+      if (!request || typeof request !== 'object') return
+
+      const icon = resolveDragIcon()
+      let filePaths: string[] = []
+
+      if (request.kind === 'local') {
+        filePaths = (request.paths || []).filter(
+          (p): p is string => typeof p === 'string' && p.trim().length > 0
+        )
+      } else if (request.kind === 'remote') {
+        // Remote must be prepared first via fs:prepare-remote-drag.
+        console.warn('fs:start-native-drag: remote kind requires prepareRemoteDrag first')
+        return
+      }
+
+      if (filePaths.length === 0) return
+
+      if (filePaths.length === 1 || process.platform === 'darwin') {
+        event.sender.startDrag({
+          file: filePaths[0],
+          ...(filePaths.length > 1 ? { files: filePaths } : {}),
+          icon,
+        })
+        return
+      }
+
+      // Windows multi-select of already-local paths: stage into a temp folder.
+      const stagingRoot = path.join(
+        os.tmpdir(),
+        'puppyftp-drag',
+        `Local_${Date.now().toString(36)}`
+      )
+      mkdirSync(stagingRoot, { recursive: true })
+      for (const src of filePaths) {
+        const dest = path.join(stagingRoot, path.basename(src))
+        try {
+          const st = statSync(src)
+          if (st.isDirectory()) cpSync(src, dest, { recursive: true })
+          else copyFileSync(src, dest)
+        } catch (e) {
+          console.warn('local drag stage failed', src, e)
+        }
+      }
+      event.sender.startDrag({ file: stagingRoot, icon })
+      setTimeout(() => {
+        void fsPromises.rm(stagingRoot, { recursive: true, force: true }).catch(() => {})
+      }, 15 * 60 * 1000)
+    } catch (e) {
+      console.warn('fs:start-native-drag failed', e)
+    }
   })
 }

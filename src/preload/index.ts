@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import {
   Server,
   Category,
@@ -10,6 +10,7 @@ import {
   TransferProgressEvent,
   TransferStartOptions,
   FileEntry,
+  NativeDragRequest,
   RemoteCacheEntry,
   ExploreProgressEvent,
   AICommandApprovalRequest,
@@ -143,6 +144,22 @@ const api: ElectronAPI = {
   renameRemote: (serverId: string, oldPath: string, newPath: string): Promise<boolean> => ipcRenderer.invoke('fs:rename-remote', serverId, oldPath, newPath),
   chmodRemote: (serverId: string, filePath: string, mode: number | string): Promise<boolean> =>
     ipcRenderer.invoke('fs:chmod-remote', serverId, filePath, mode),
+  getPathForFile: (file: File): string => webUtils.getPathForFile(file),
+  statLocal: (filePath: string): Promise<FileEntry | null> =>
+    ipcRenderer.invoke('fs:stat-local', filePath),
+  copyLocalInto: (sources: string[], destDir: string): Promise<boolean> =>
+    ipcRenderer.invoke('fs:copy-local-into', sources, destDir),
+  prepareRemoteDrag: (
+    serverId: string,
+    entries: Array<Pick<FileEntry, 'name' | 'path' | 'type' | 'size'>>
+  ): Promise<string[] | null> =>
+    ipcRenderer.invoke('fs:prepare-remote-drag', serverId, entries),
+  startNativeDrag: (request: NativeDragRequest): void => {
+    ipcRenderer.send('fs:start-native-drag', request)
+  },
+  cancelNativeDrag: (): void => {
+    ipcRenderer.send('fs:cancel-native-drag')
+  },
   uploadFile: (
     serverId: string,
     localPath: string,
