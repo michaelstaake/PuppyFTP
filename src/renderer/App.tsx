@@ -1060,6 +1060,7 @@ const App: FC = () => {
               onDisconnect={disconnectSelectedServer}
               onReconnect={reconnectSelectedServer}
               onPopOutError={message => showToast(message, 'error')}
+              onToast={showToast}
               onAttachConsumed={clearAttachSessionId}
               onSessionConnected={markConnectionEstablished}
               onSessionFailed={markConnectionFailed}

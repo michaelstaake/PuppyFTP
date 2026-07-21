@@ -23,9 +23,17 @@ const TerminalPopoutApp: React.FC<TerminalPopoutAppProps> = ({ serverId, session
   const [terminalMenu, setTerminalMenu] = useState<TerminalMenuAnchor | null>(null)
   const [fontStyle, setFontStyle] = useState<FileFontStyle>(DEFAULT_TERMINAL_SETTINGS.fontStyle)
   const [fontSize, setFontSize] = useState(DEFAULT_TERMINAL_SETTINGS.fontSize)
+  const [toasts, setToasts] = useState<Array<{ id: number; message: string; type: 'success' | 'error' | 'info' }>>([])
   const xtermRef = useRef<XTermHandle | null>(null)
+  const toastIdRef = useRef(0)
 
   const closeTerminalMenu = useCallback(() => setTerminalMenu(null), [])
+
+  const showToast = useCallback((message: string, type: 'success' | 'error' | 'info' = 'info') => {
+    const id = ++toastIdRef.current
+    setToasts(prev => [...prev, { id, message, type }])
+    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 3200)
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -135,6 +143,7 @@ const TerminalPopoutApp: React.FC<TerminalPopoutAppProps> = ({ serverId, session
           anchor={terminalMenu}
           terminal={xtermRef.current}
           onClose={closeTerminalMenu}
+          onNotify={message => showToast(message, 'success')}
         />
       )}
 
@@ -156,6 +165,17 @@ const TerminalPopoutApp: React.FC<TerminalPopoutAppProps> = ({ serverId, session
             onConnectFailed={() => setError('Could not attach to terminal session')}
           />
         )}
+      </div>
+
+      <div className="fixed bottom-4 right-4 z-[9999] flex flex-col gap-2">
+        {toasts.map(t => (
+          <div
+            key={t.id}
+            className={`px-4 py-2 rounded-md shadow-lg text-sm font-medium text-white ${t.type === 'error' ? 'bg-red-600' : t.type === 'success' ? 'bg-emerald-600' : 'bg-zinc-800 border border-border'}`}
+          >
+            {t.message}
+          </div>
+        ))}
       </div>
     </div>
   )

@@ -34,6 +34,7 @@ interface MainAreaProps {
   onDisconnect: () => void
   onReconnect: () => void
   onPopOutError?: (message: string) => void
+  onToast?: (message: string, type?: 'success' | 'error' | 'info') => void
   onAttachConsumed: (serverId: string) => void
   aiEnabled: boolean
   aiChatOpen?: boolean
@@ -69,6 +70,7 @@ const MainArea: React.FC<MainAreaProps> = ({
   onDisconnect,
   onReconnect,
   onPopOutError,
+  onToast,
   onAttachConsumed,
   aiEnabled,
   aiChatOpen = false,
@@ -358,6 +360,7 @@ const MainArea: React.FC<MainAreaProps> = ({
           anchor={terminalMenu}
           terminal={xtermRefs.current[server.id] ?? null}
           onClose={closeTerminalMenu}
+          onNotify={message => onToast?.(message, 'success')}
           ignoreCloseRef={menuButtonRef}
         />
       )}

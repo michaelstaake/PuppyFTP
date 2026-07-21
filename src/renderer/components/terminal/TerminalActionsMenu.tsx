@@ -9,8 +9,18 @@ interface TerminalActionsMenuProps {
   anchor: TerminalMenuAnchor | null
   terminal: XTermHandle | null
   onClose: () => void
+  /** Shown after a successful screenshot (e.g. toast). */
+  onNotify?: (message: string) => void
   /** Clicks on this element should not auto-close (e.g. the toggle button). */
   ignoreCloseRef?: { current: HTMLElement | null }
+}
+
+function waitForNextPaint(): Promise<void> {
+  return new Promise(resolve => {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => resolve())
+    })
+  })
 }
 
 const TerminalActionsMenu: React.FC<TerminalActionsMenuProps> = ({
@@ -18,6 +28,7 @@ const TerminalActionsMenu: React.FC<TerminalActionsMenuProps> = ({
   anchor,
   terminal,
   onClose,
+  onNotify,
   ignoreCloseRef,
 }) => {
   const menuRef = useRef<HTMLDivElement>(null)
@@ -70,8 +81,11 @@ const TerminalActionsMenu: React.FC<TerminalActionsMenuProps> = ({
           height: Math.round(rect.height),
         }
       : undefined
-    await window.electronAPI?.captureRectToClipboard?.(payload)
+    // Close first so the menu is not captured in the screenshot.
     onClose()
+    await waitForNextPaint()
+    await window.electronAPI?.captureRectToClipboard?.(payload)
+    onNotify?.('Screenshot in clipboard')
   }
 
   const hasSelection = !!terminal?.hasSelection()
