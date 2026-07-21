@@ -1,5 +1,12 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react'
-import { Server, isSerialConnection, protocolLabel } from '@shared/types'
+import {
+  Server,
+  isSerialConnection,
+  protocolLabel,
+  DEFAULT_TERMINAL_SETTINGS,
+  normalizeTerminalSettings,
+  type FileFontStyle,
+} from '@shared/types'
 import { applyResolvedTheme, normalizeThemePreference, resolveTheme } from '../../lib/theme'
 import XTerm, { XTermHandle } from './XTerm'
 import TerminalActionsMenu, { TerminalMenuAnchor } from './TerminalActionsMenu'
@@ -14,6 +21,8 @@ const TerminalPopoutApp: React.FC<TerminalPopoutAppProps> = ({ serverId, session
   const [error, setError] = useState<string | null>(null)
   const [closed, setClosed] = useState(false)
   const [terminalMenu, setTerminalMenu] = useState<TerminalMenuAnchor | null>(null)
+  const [fontStyle, setFontStyle] = useState<FileFontStyle>(DEFAULT_TERMINAL_SETTINGS.fontStyle)
+  const [fontSize, setFontSize] = useState(DEFAULT_TERMINAL_SETTINGS.fontSize)
   const xtermRef = useRef<XTermHandle | null>(null)
 
   const closeTerminalMenu = useCallback(() => setTerminalMenu(null), [])
@@ -27,6 +36,11 @@ const TerminalPopoutApp: React.FC<TerminalPopoutAppProps> = ({ serverId, session
           const preference = normalizeThemePreference(settings.theme)
           const resolved = await resolveTheme(preference)
           if (!cancelled) applyResolvedTheme(resolved)
+          const terminal = normalizeTerminalSettings(settings.terminal)
+          if (!cancelled) {
+            setFontStyle(terminal.fontStyle)
+            setFontSize(terminal.fontSize)
+          }
         }
         const servers = await window.electronAPI?.getServers?.()
         const match = servers?.find(s => s.id === serverId) ?? null
@@ -136,6 +150,8 @@ const TerminalPopoutApp: React.FC<TerminalPopoutAppProps> = ({ serverId, session
             existingSessionId={sessionId}
             detachOnUnmount
             active
+            fontStyle={fontStyle}
+            fontSize={fontSize}
             onDisconnected={() => setClosed(true)}
             onConnectFailed={() => setError('Could not attach to terminal session')}
           />

@@ -2,7 +2,7 @@ import { app, BrowserWindow, ipcMain, dialog, shell, nativeTheme, Tray, Menu, gl
 import { join } from 'path'
 import { readFileSync, writeFileSync, mkdirSync } from 'fs'
 import { Client } from 'ssh2'
-import { Server, Category, AppSettings, ResolvedTheme, ThemePreference, AISessionsStore, TransferHistoryStore, DEFAULT_CONNECTION_TIMEOUT, normalizeConnectionTimeout, DEFAULT_FILES_SETTINGS, normalizeFilesSettings, DEFAULT_CATEGORIES, protocolLabel, isSerialConnection, DEFAULT_SERIAL_BAUD_RATE } from '../shared/types'
+import { Server, Category, AppSettings, ResolvedTheme, ThemePreference, AISessionsStore, TransferHistoryStore, DEFAULT_CONNECTION_TIMEOUT, normalizeConnectionTimeout, DEFAULT_FILES_SETTINGS, normalizeFilesSettings, DEFAULT_TERMINAL_SETTINGS, normalizeTerminalSettings, DEFAULT_CATEGORIES, protocolLabel, isSerialConnection, DEFAULT_SERIAL_BAUD_RATE } from '../shared/types'
 import { registerFsHandlers, closeAllRemoteClients, close as closeRemoteCache } from './fs-handlers'
 import { registerRdpHandlers, closeAllRdpSessions } from './rdp-handlers'
 import { getSummaryEntries } from './services/remote-cache'
@@ -113,6 +113,7 @@ const DEFAULT_SETTINGS: AppSettings = {
     contextLength: DEFAULT_CONTEXT_LENGTH,
   },
   files: { ...DEFAULT_FILES_SETTINGS },
+  terminal: { ...DEFAULT_TERMINAL_SETTINGS },
   keys: [],
 }
 
@@ -435,6 +436,7 @@ ipcMain.handle('store:get-settings', () => {
   const theme = normalizeTheme(settings.theme)
   const ai = normalizeAISettings(settings.ai)
   const files = normalizeFilesSettings(settings.files)
+  const terminal = normalizeTerminalSettings(settings.terminal)
   const connectionTimeout = normalizeConnectionTimeout(settings.connectionTimeout)
   const protectServerData = settings.protectServerData === true
   const needsWrite =
@@ -446,12 +448,14 @@ ipcMain.handle('store:get-settings', () => {
     settings.ai?.contextLength !== ai.contextLength ||
     settings.files?.fontStyle !== files.fontStyle ||
     settings.files?.fontSize !== files.fontSize ||
+    settings.terminal?.fontStyle !== terminal.fontStyle ||
+    settings.terminal?.fontSize !== terminal.fontSize ||
     settings.protectServerData !== protectServerData
   if (needsWrite) {
-    settings = { ...settings, theme, ai, files, connectionTimeout, protectServerData }
+    settings = { ...settings, theme, ai, files, terminal, connectionTimeout, protectServerData }
     writeJsonSync(SETTINGS_PATH, settings)
   } else {
-    settings = { ...settings, theme, ai, files, connectionTimeout, protectServerData }
+    settings = { ...settings, theme, ai, files, terminal, connectionTimeout, protectServerData }
   }
   return settings
 })
@@ -465,6 +469,7 @@ ipcMain.handle('store:save-settings', (_, settings: AppSettings) => {
     connectionTimeout: normalizeConnectionTimeout(settings.connectionTimeout),
     ai: normalizeAISettings(settings.ai),
     files: normalizeFilesSettings(settings.files),
+    terminal: normalizeTerminalSettings(settings.terminal),
     keys: settings.keys || [],
     protectServerData: nextProtect,
   }

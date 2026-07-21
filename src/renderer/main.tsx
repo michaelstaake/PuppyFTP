@@ -5,6 +5,8 @@ import TerminalPopoutApp from './components/terminal/TerminalPopoutApp'
 import '@fontsource/ubuntu/400.css'
 import '@fontsource/ubuntu/500.css'
 import '@fontsource/ubuntu/700.css'
+import '@fontsource/ubuntu-mono/400.css'
+import '@fontsource/ubuntu-mono/700.css'
 import './styles/globals.css'
 
 const params = new URLSearchParams(window.location.search)

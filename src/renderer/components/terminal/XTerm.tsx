@@ -4,7 +4,12 @@ import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { SerializeAddon } from '@xterm/addon-serialize'
 import '@xterm/xterm/css/xterm.css'
-import { Server } from '@shared/types'
+import {
+  Server,
+  type FileFontStyle,
+  DEFAULT_TERMINAL_SETTINGS,
+  terminalFontFamily,
+} from '@shared/types'
 
 export interface XTermHandle {
   /** Call before unmounting so cleanup does not end the SSH session. */
@@ -31,6 +36,8 @@ interface XTermProps {
   existingSessionId?: string | null
   /** When true, unmount disposes the UI but leaves the SSH session running. */
   detachOnUnmount?: boolean
+  fontStyle?: FileFontStyle
+  fontSize?: number
   onConnected?: () => void
   onConnectFailed?: () => void
   onDisconnected?: () => void
@@ -42,6 +49,8 @@ const XTerm = forwardRef<XTermHandle, XTermProps>(function XTerm(
     active = true,
     existingSessionId = null,
     detachOnUnmount = false,
+    fontStyle = DEFAULT_TERMINAL_SETTINGS.fontStyle,
+    fontSize = DEFAULT_TERMINAL_SETTINGS.fontSize,
     onConnected,
     onConnectFailed,
     onDisconnected,
@@ -98,8 +107,8 @@ const XTerm = forwardRef<XTermHandle, XTermProps>(function XTerm(
 
     const term = new Terminal({
       cursorBlink: true,
-      fontSize: 14,
-      fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+      fontSize,
+      fontFamily: terminalFontFamily(fontStyle),
       scrollback: 5000,
       theme: {
         background: '#0a0a0f',
@@ -250,6 +259,24 @@ const XTerm = forwardRef<XTermHandle, XTermProps>(function XTerm(
       } catch { /* ignore */ }
     })
   }, [active])
+
+  useEffect(() => {
+    const term = termRef.current
+    if (!term) return
+    const nextFamily = terminalFontFamily(fontStyle)
+    const nextSize = fontSize
+    if (term.options.fontFamily === nextFamily && term.options.fontSize === nextSize) return
+    term.options.fontFamily = nextFamily
+    term.options.fontSize = nextSize
+    requestAnimationFrame(() => {
+      try {
+        fitAddonRef.current?.fit()
+        if (sessionIdRef.current) {
+          window.electronAPI.resizeTerminal(sessionIdRef.current, term.cols, term.rows).catch(() => {})
+        }
+      } catch { /* ignore */ }
+    })
+  }, [fontStyle, fontSize])
 
   return (
     <div

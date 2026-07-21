@@ -1,5 +1,5 @@
 import React from 'react'
-import { Server, isSerialConnection, isTerminalProtocol, protocolLabel, type ExplorerSortPreference, type FileFontStyle } from '@shared/types'
+import { Server, isSerialConnection, isTerminalProtocol, protocolLabel, type ExplorerSortPreference, type FileFontStyle, DEFAULT_TERMINAL_SETTINGS } from '@shared/types'
 import {
   MessageCircle,
   RefreshCw,
@@ -51,6 +51,8 @@ interface MainAreaProps {
   onRemoteSortChange?: (serverId: string, sort: ExplorerSortPreference) => void
   fileFontStyle?: FileFontStyle
   fileFontSize?: number
+  terminalFontStyle?: FileFontStyle
+  terminalFontSize?: number
 }
 
 const MainArea: React.FC<MainAreaProps> = ({
@@ -80,6 +82,8 @@ const MainArea: React.FC<MainAreaProps> = ({
   onRemoteSortChange,
   fileFontStyle,
   fileFontSize,
+  terminalFontStyle = DEFAULT_TERMINAL_SETTINGS.fontStyle,
+  terminalFontSize = DEFAULT_TERMINAL_SETTINGS.fontSize,
 }) => {
   const explorerRef = React.useRef<DualPaneExplorerHandle>(null)
   const xtermRefs = React.useRef<Record<string, XTermHandle | null>>({})
@@ -469,6 +473,8 @@ const MainArea: React.FC<MainAreaProps> = ({
                       server={s}
                       existingSessionId={attachSessionId}
                       active={isActive || (isConnecting && s.id === server.id)}
+                      fontStyle={terminalFontStyle}
+                      fontSize={terminalFontSize}
                       onConnected={() => {
                         if (attachSessionId) onAttachConsumed(s.id)
                         onSessionConnected(s.id)

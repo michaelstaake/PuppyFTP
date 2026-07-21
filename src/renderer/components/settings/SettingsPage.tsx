@@ -9,9 +9,12 @@ import {
   DEFAULT_CONNECTION_TIMEOUT,
   DEFAULT_CONTEXT_LENGTH,
   DEFAULT_FILE_FONT_SIZE,
+  DEFAULT_TERMINAL_FONT_SIZE,
   normalizeConnectionTimeout,
   normalizeFileFontSize,
   normalizeFileFontStyle,
+  normalizeTerminalFontSize,
+  normalizeTerminalFontStyle,
 } from '@shared/types'
 import {
   ArrowLeft,
@@ -25,6 +28,7 @@ import {
   Settings2,
   ShieldAlert,
   Sun,
+  Terminal,
   Trash2,
   FolderOpen,
 } from 'lucide-react'
@@ -103,6 +107,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   const [testStatus, setTestStatus] = useState<'idle' | 'running' | 'success' | 'error'>('idle')
   const [testMessage, setTestMessage] = useState('')
   const generalRef = useRef<HTMLDivElement>(null)
+  const terminalRef = useRef<HTMLDivElement>(null)
   const filesRef = useRef<HTMLDivElement>(null)
   const aiRef = useRef<HTMLDivElement>(null)
   const authRef = useRef<HTMLDivElement>(null)
@@ -115,6 +120,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
 
   const sectionRef = (id: SettingsSection) => {
     if (id === 'general') return generalRef.current
+    if (id === 'terminal') return terminalRef.current
     if (id === 'files') return filesRef.current
     if (id === 'auth') return authRef.current
     return aiRef.current
@@ -451,6 +457,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
       <div className="flex flex-1 overflow-hidden">
         <aside className="w-48 border-r border-border p-3 space-y-1 bg-sidebar">
           {navBtn('general', 'General', <Settings2 className="h-4 w-4" />)}
+          {navBtn('terminal', 'Terminal', <Terminal className="h-4 w-4" />)}
           {navBtn('files', 'Files', <Files className="h-4 w-4" />)}
           {navBtn('ai', 'AI', <Bot className="h-4 w-4" />)}
           {navBtn('auth', 'Authentication', <KeyRound className="h-4 w-4" />)}
@@ -576,6 +583,89 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                     </button>
                   )
                 })}
+              </div>
+            </div>
+          </section>
+
+          {/* Terminal */}
+          <section ref={terminalRef} id="settings-terminal" className="max-w-lg space-y-4">
+            <div>
+              <h2 className="text-lg font-semibold flex items-center gap-2">
+                <Terminal className="h-5 w-5 text-accent" />
+                Terminal
+              </h2>
+            </div>
+
+            <div className="rounded border border-border bg-card/50 px-4 py-3 space-y-4">
+              <div className="space-y-2">
+                <div>
+                  <div className="text-sm font-medium">Font style</div>
+                  <div className="text-xs text-muted-foreground mt-0.5">
+                    Monospace typeface used in the terminal.
+                  </div>
+                </div>
+                <select
+                  id="terminal-font-style"
+                  className="w-full bg-background border border-border rounded px-3 py-1.5 text-sm"
+                  value={settings.terminal?.fontStyle ?? 'ubuntu'}
+                  onChange={e => {
+                    const fontStyle = normalizeTerminalFontStyle(e.target.value)
+                    void persist({
+                      ...settingsRef.current,
+                      terminal: {
+                        ...settingsRef.current.terminal,
+                        fontStyle,
+                      },
+                    })
+                  }}
+                >
+                  {FILE_FONT_STYLE_OPTIONS.map(option => (
+                    <option key={option.id} value={option.id}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-2">
+                <div>
+                  <div className="text-sm font-medium">Font size</div>
+                  <div className="text-xs text-muted-foreground mt-0.5">
+                    Size of text in the terminal.
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    id="terminal-font-size"
+                    type="number"
+                    min={10}
+                    max={32}
+                    step={1}
+                    className="w-24 bg-background border border-border rounded px-3 py-1.5 text-sm tabular-nums"
+                    value={settings.terminal?.fontSize ?? DEFAULT_TERMINAL_FONT_SIZE}
+                    onChange={e => {
+                      const n = Number(e.target.value)
+                      setSettings(s => ({
+                        ...s,
+                        terminal: {
+                          ...s.terminal,
+                          fontSize: Number.isFinite(n) ? n : s.terminal.fontSize,
+                        },
+                      }))
+                    }}
+                    onBlur={() => {
+                      const fontSize = normalizeTerminalFontSize(settingsRef.current.terminal?.fontSize)
+                      void persist({
+                        ...settingsRef.current,
+                        terminal: {
+                          ...settingsRef.current.terminal,
+                          fontSize,
+                        },
+                      })
+                    }}
+                  />
+                  <span className="text-sm text-muted-foreground">px</span>
+                </div>
               </div>
             </div>
           </section>

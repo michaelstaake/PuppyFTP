@@ -14,9 +14,11 @@ import {
   DEFAULT_CATEGORIES,
   DEFAULT_CONTEXT_LENGTH,
   DEFAULT_FILES_SETTINGS,
+  DEFAULT_TERMINAL_SETTINGS,
   UNCATEGORIZED_ID,
   normalizeConnectionTimeout,
   normalizeFilesSettings,
+  normalizeTerminalSettings,
   type ExplorerSortPreference,
 } from '@shared/types'
 import ServerSidebar from './components/servers/ServerSidebar'
@@ -44,6 +46,7 @@ const defaultSettings: AppSettings = {
     contextLength: DEFAULT_CONTEXT_LENGTH,
   },
   files: { ...DEFAULT_FILES_SETTINGS },
+  terminal: { ...DEFAULT_TERMINAL_SETTINGS },
   keys: [],
 }
 
@@ -342,6 +345,7 @@ const App: FC = () => {
             protectServerData: settings?.protectServerData === true,
             ai: { ...defaultSettings.ai, ...settings?.ai },
             files: normalizeFilesSettings(settings?.files),
+            terminal: normalizeTerminalSettings(settings?.terminal),
             keys: settings?.keys || [],
           }
           setAppSettings(next)
@@ -992,6 +996,7 @@ const App: FC = () => {
         ),
       },
       files: normalizeFilesSettings(newSettings.files),
+      terminal: normalizeTerminalSettings(newSettings.terminal),
     }
     if (window.electronAPI) {
       await window.electronAPI.saveSettings(next)
@@ -1065,6 +1070,8 @@ const App: FC = () => {
               onRemoteSortChange={handleRemoteSortChange}
               fileFontStyle={appSettings?.files.fontStyle ?? DEFAULT_FILES_SETTINGS.fontStyle}
               fileFontSize={appSettings?.files.fontSize ?? DEFAULT_FILES_SETTINGS.fontSize}
+              terminalFontStyle={appSettings?.terminal.fontStyle ?? DEFAULT_TERMINAL_SETTINGS.fontStyle}
+              terminalFontSize={appSettings?.terminal.fontSize ?? DEFAULT_TERMINAL_SETTINGS.fontSize}
               aiEnabled={aiEnabled}
               aiChatOpen={aiChatOpen}
               onToggleAIChat={toggleAIChat}

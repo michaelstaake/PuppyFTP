@@ -217,6 +217,12 @@ export interface AppSettings {
     /** Font size in pixels for file listings. */
     fontSize: number
   }
+  /** Terminal (xterm) appearance. */
+  terminal: {
+    fontStyle: FileFontStyle
+    /** Font size in pixels for the terminal. */
+    fontSize: number
+  }
   keys: AuthKey[]
 }
 
@@ -259,7 +265,7 @@ export interface AICommandApprovalRequest {
   serverName?: string
 }
 
-export type SettingsSection = 'general' | 'files' | 'ai' | 'auth'
+export type SettingsSection = 'general' | 'terminal' | 'files' | 'ai' | 'auth'
 
 /** Default remote connection timeout in seconds. */
 export const DEFAULT_CONNECTION_TIMEOUT = 20
@@ -267,9 +273,17 @@ export const DEFAULT_CONNECTION_TIMEOUT = 20
 /** Default file explorer font size in pixels (matches former text-sm). */
 export const DEFAULT_FILE_FONT_SIZE = 14
 
+/** Default terminal font size in pixels (matches former xterm default). */
+export const DEFAULT_TERMINAL_FONT_SIZE = 14
+
 export const DEFAULT_FILES_SETTINGS: AppSettings['files'] = {
   fontStyle: 'ubuntu',
   fontSize: DEFAULT_FILE_FONT_SIZE,
+}
+
+export const DEFAULT_TERMINAL_SETTINGS: AppSettings['terminal'] = {
+  fontStyle: 'ubuntu',
+  fontSize: DEFAULT_TERMINAL_FONT_SIZE,
 }
 
 export function normalizeConnectionTimeout(value: unknown): number {
@@ -296,6 +310,36 @@ export function normalizeFilesSettings(
     fontStyle: normalizeFileFontStyle(files?.fontStyle),
     fontSize: normalizeFileFontSize(files?.fontSize),
   }
+}
+
+export function normalizeTerminalFontStyle(value: unknown): FileFontStyle {
+  if (value === 'mono' || value === 'sans' || value === 'ubuntu') return value
+  return DEFAULT_TERMINAL_SETTINGS.fontStyle
+}
+
+export function normalizeTerminalFontSize(value: unknown): number {
+  const n = typeof value === 'number' ? value : Number(value)
+  if (!Number.isFinite(n)) return DEFAULT_TERMINAL_FONT_SIZE
+  return Math.min(32, Math.max(10, Math.round(n)))
+}
+
+export function normalizeTerminalSettings(
+  terminal: AppSettings['terminal'] | undefined
+): AppSettings['terminal'] {
+  return {
+    fontStyle: normalizeTerminalFontStyle(terminal?.fontStyle),
+    fontSize: normalizeTerminalFontSize(terminal?.fontSize),
+  }
+}
+
+/**
+ * CSS font-family for xterm. Must be monospace — proportional fonts leave
+ * large gaps because xterm lays glyphs on a fixed character cell grid.
+ */
+export function terminalFontFamily(style: FileFontStyle): string {
+  if (style === 'ubuntu') return '"Ubuntu Mono", "Cascadia Mono", Consolas, monospace'
+  if (style === 'sans') return '"Cascadia Mono", Consolas, "Segoe UI Mono", ui-monospace, monospace'
+  return 'Menlo, Monaco, "Courier New", monospace'
 }
 
 export interface FileEntry {
