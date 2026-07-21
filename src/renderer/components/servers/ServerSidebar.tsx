@@ -137,6 +137,7 @@ function serverEndpointLabel(server: Server): string {
 
 type CategoryMenuState = { categoryId: string; x: number; y: number } | null
 type ServerMenuState = { serverId: string; x: number; y: number } | null
+type AddMenuState = { x: number; y: number } | null
 type CategoryModal =
   | { type: 'add' }
   | { type: 'rename'; categoryId: string; name: string }
@@ -169,12 +170,14 @@ const ServerSidebar: React.FC<ServerSidebarProps> = ({
   const [editingServerId, setEditingServerId] = useState<string | null>(null)
   const [categoryMenu, setCategoryMenu] = useState<CategoryMenuState>(null)
   const [serverMenu, setServerMenu] = useState<ServerMenuState>(null)
+  const [addMenu, setAddMenu] = useState<AddMenuState>(null)
   const [categoryModal, setCategoryModal] = useState<CategoryModal>(null)
   const [categoryNameDraft, setCategoryNameDraft] = useState('')
   const [serialPorts, setSerialPorts] = useState<SerialPortInfo[]>([])
   const [serialPortsLoading, setSerialPortsLoading] = useState(false)
   const categoryMenuRef = useRef<HTMLDivElement>(null)
   const serverMenuRef = useRef<HTMLDivElement>(null)
+  const addMenuRef = useRef<HTMLDivElement>(null)
   // Only dismiss when press started on the backdrop — avoids closing when
   // text selection drag ends with mouseup outside the panel.
   const modalBackdropMouseDownRef = useRef(false)
@@ -227,6 +230,23 @@ const ServerSidebar: React.FC<ServerSidebarProps> = ({
     }
   }, [serverMenu])
 
+  useEffect(() => {
+    if (!addMenu) return
+    const onPointerDown = (e: MouseEvent) => {
+      if (addMenuRef.current?.contains(e.target as Node)) return
+      setAddMenu(null)
+    }
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setAddMenu(null)
+    }
+    document.addEventListener('mousedown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [addMenu])
+
   const toggleCategory = async (catId: string) => {
     const updated = categories.map(c =>
       c.id === catId ? { ...c, collapsed: !c.collapsed } : c
@@ -274,6 +294,9 @@ const ServerSidebar: React.FC<ServerSidebarProps> = ({
   }, [showAddModal, newServer.connectionType, newServer.connectionMethod])
 
   const openAddServer = () => {
+    setAddMenu(null)
+    setCategoryMenu(null)
+    setServerMenu(null)
     resetForm()
     setShowAddModal(true)
   }
@@ -444,6 +467,7 @@ const ServerSidebar: React.FC<ServerSidebarProps> = ({
 
   const openAddCategory = () => {
     setCategoryMenu(null)
+    setAddMenu(null)
     setCategoryNameDraft('')
     setCategoryModal({ type: 'add' })
   }
@@ -622,6 +646,13 @@ const ServerSidebar: React.FC<ServerSidebarProps> = ({
         </span>
         <button
           onClick={openAddServer}
+          onContextMenu={e => {
+            e.preventDefault()
+            e.stopPropagation()
+            setCategoryMenu(null)
+            setServerMenu(null)
+            setAddMenu({ x: e.clientX, y: e.clientY })
+          }}
           className="p-1 rounded hover:bg-accent/20 text-accent"
           title="Add"
         >
@@ -657,26 +688,13 @@ const ServerSidebar: React.FC<ServerSidebarProps> = ({
                     e.preventDefault()
                     e.stopPropagation()
                     setServerMenu(null)
+                    setAddMenu(null)
                     setCategoryMenu({ categoryId: cat.id, x: e.clientX, y: e.clientY })
                   }}
                 >
                   {cat.name}
                 </span>
-                {isDefault ? (
-                  <button
-                    type="button"
-                    className="ml-auto p-0.5 rounded hover:bg-accent/20 text-accent"
-                    title="Add category"
-                    onClick={e => {
-                      e.stopPropagation()
-                      openAddCategory()
-                    }}
-                  >
-                    <Plus className="h-3.5 w-3.5" />
-                  </button>
-                ) : (
-                  <span className="ml-auto text-[10px] opacity-50">({items.length})</span>
-                )}
+                <span className="ml-auto text-[10px] opacity-50">({items.length})</span>
               </div>
               {!collapsed &&
                 items.map(server => (
@@ -693,6 +711,7 @@ const ServerSidebar: React.FC<ServerSidebarProps> = ({
                       e.preventDefault()
                       e.stopPropagation()
                       setCategoryMenu(null)
+                      setAddMenu(null)
                       setServerMenu({ serverId: server.id, x: e.clientX, y: e.clientY })
                     }}
                   >
@@ -744,6 +763,37 @@ const ServerSidebar: React.FC<ServerSidebarProps> = ({
           </div>
         )}
       </div>
+
+      {addMenu && (
+        <div
+          ref={addMenuRef}
+          className="fixed z-[60] min-w-[140px] rounded-md border border-border bg-card py-1 shadow-lg text-sm"
+          style={{ left: addMenu.x, top: addMenu.y }}
+        >
+          <button
+            type="button"
+            className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-muted text-left"
+            onClick={() => {
+              setAddMenu(null)
+              openAddServer()
+            }}
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Add Server
+          </button>
+          <button
+            type="button"
+            className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-muted text-left"
+            onClick={() => {
+              setAddMenu(null)
+              openAddCategory()
+            }}
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Add Category
+          </button>
+        </div>
+      )}
 
       {categoryMenu && (
         <div
