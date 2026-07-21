@@ -70,9 +70,18 @@ const XTerm = forwardRef<XTermHandle, XTermProps>(function XTerm(
   const onConnectedRef = useRef(onConnected)
   const onConnectFailedRef = useRef(onConnectFailed)
   const onDisconnectedRef = useRef(onDisconnected)
+  const activeRef = useRef(active)
   onConnectedRef.current = onConnected
   onConnectFailedRef.current = onConnectFailed
   onDisconnectedRef.current = onDisconnected
+  activeRef.current = active
+
+  const focusTerminal = () => {
+    // Defer so focus wins over whatever stole it during connect (sidebar click, overlay, etc.).
+    requestAnimationFrame(() => {
+      termRef.current?.focus()
+    })
+  }
 
   useImperativeHandle(ref, () => ({
     prepareDetach: () => {
@@ -97,9 +106,7 @@ const XTerm = forwardRef<XTermHandle, XTermProps>(function XTerm(
       term.paste(text)
     },
     getBoundingClientRect: () => containerRef.current?.getBoundingClientRect() ?? null,
-    focus: () => {
-      termRef.current?.focus()
-    },
+    focus: focusTerminal,
   }))
 
   useEffect(() => {
@@ -162,6 +169,7 @@ const XTerm = forwardRef<XTermHandle, XTermProps>(function XTerm(
         sessionIdRef.current = sessionId
         establishedRef.current = true
         onConnectedRef.current?.()
+        if (activeRef.current) focusTerminal()
 
         const handleData = (sid: string, data: string) => {
           if (sid === sessionId && termRef.current) {
@@ -255,6 +263,7 @@ const XTerm = forwardRef<XTermHandle, XTermProps>(function XTerm(
         const term = termRef.current
         if (term && sessionIdRef.current) {
           window.electronAPI.resizeTerminal(sessionIdRef.current, term.cols, term.rows).catch(() => {})
+          term.focus()
         }
       } catch { /* ignore */ }
     })
